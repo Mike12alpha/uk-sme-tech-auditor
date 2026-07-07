@@ -1,0 +1,82 @@
+{
+  "title": "UK SME Tech Auditor Input",
+  "description": "Input schema for auditing UK SME websites and scoring IT outsourcing leads.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "startUrls": {
+      "title": "Start URLs",
+      "type": "array",
+      "description": "List of UK company websites or industry directory pages to audit.",
+      "editor": "requestListSources",
+      "prefill": [
+        { "url": "https://www.yell.com/ucs/UcsSearchAction.do?keywords=car+dealerships&location=London" }
+      ]
+    },
+    "maxRequestsPerCrawl": {
+      "title": "Max Requests Per Crawl",
+      "type": "integer",
+      "description": "Maximum number of pages the crawler will process.",
+      "default": 100,
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "minScoreThreshold": {
+      "title": "Minimum Score Threshold",
+      "type": "integer",
+      "description": "Only enrich leads with outsourcing score equal to or above this threshold.",
+      "default": 70,
+      "minimum": 0,
+      "maximum": 100
+    },
+    "industry": {
+      "title": "Industry",
+      "type": "string",
+      "description": "Target industry for scoring and pitch angle.",
+      "enum": ["automotive", "healthcare", "retail", "logistics", "fintech"],
+      "default": "automotive"
+    },
+    "companySize": {
+      "title": "Company Size",
+      "type": "string",
+      "description": "Typical size category of target companies.",
+      "enum": ["startup", "SME", "enterprise"],
+      "default": "SME"
+    },
+    "enableEnrichment": {
+      "title": "Enable Decision Maker Enrichment",
+      "type": "boolean",
+      "description": "Use Proxycurl to enrich high-scoring leads with CTO/IT Director/Founder data.",
+      "default": true
+    },
+    "proxycurlApiKey": {
+      "title": "Proxycurl API Key",
+      "type": "string",
+      "description": "Required if enrichment is enabled. Get one at https://nubela.co/proxycurl.",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "ollamaBaseUrl": {
+      "title": "Ollama Base URL",
+      "type": "string",
+      "description": "Base URL of your Ollama server. Leave default for local Ollama.",
+      "default": "http://localhost:11434",
+      "editor": "textfield"
+    },
+    "ollamaModel": {
+      "title": "Ollama Model",
+      "type": "string",
+      "description": "Open-source model to use. Must be available/pulled in Ollama.",
+      "default": "llama3.2",
+      "enum": ["llama3.2", "llama3.1", "mistral", "qwen2.5", "phi3"]
+    },
+    "outputFormat": {
+      "title": "Output Format",
+      "type": "string",
+      "description": "Choose whether to output JSON, CSV, or both.",
+      "enum": ["json", "csv", "both"],
+      "default": "both"
+    }
+  },
+  "required": ["startUrls"]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "uk-sme-tech-auditor",
+  "version": "1.0.0",
+  "description": "UK SME Tech Stack Auditor & IT Outsourcing Lead Scorer - Apify Actor for Glosix Systems",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test",
+    "lint": "eslint src"
+  },
+  "keywords": [
+    "apify",
+    "uk",
+    "sme",
+    "tech-stack",
+    "lead-generation",
+    "it-outsourcing",
+    "wappalyzer",
+    "lighthouse"
+  ],
+  "author": "Glosix Systems",
+  "license": "ISC",
+  "dependencies": {
+    "apify": "^3.2.0",
+    "chrome-launcher": "^1.1.2",
+    "crawlee": "^3.11.0",
+    "csv-stringify": "^6.5.0",
+    "lighthouse": "^12.1.0",
+    "ollama": "^0.5.0",
+    "playwright": "^1.45.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "tldts": "^6.1.0",
+    "user-agents": "^1.1.0",
+    "wappalyzer": "^6.10.66"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

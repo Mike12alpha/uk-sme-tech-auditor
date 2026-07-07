@@ -1,0 +1,15 @@
+{
+  "startUrls": [
+    { "url": "https://www.yell.com/ucs/UcsSearchAction.do?keywords=car+dealerships&location=London" },
+    { "url": "https://www.autotrader.co.uk/dealers" }
+  ],
+  "maxRequestsPerCrawl": 50,
+  "minScoreThreshold": 70,
+  "industry": "automotive",
+  "companySize": "SME",
+  "enableEnrichment": true,
+  "proxycurlApiKey": "YOUR_KEY_HERE",
+  "ollamaBaseUrl": "http://localhost:11434",
+  "ollamaModel": "llama3.2",
+  "outputFormat": "both"
+}

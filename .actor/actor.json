@@ -1,0 +1,17 @@
+{
+  "actorSpecification": 1,
+  "name": "uk-sme-tech-auditor",
+  "title": "UK SME Tech Stack Auditor & IT Outsourcing Lead Scorer",
+  "description": "Audits UK SME websites for tech debt, scores outsourcing likelihood 0-100, and enriches with decision maker contact data. Perfect for IT staff augmentation agencies.",
+  "version": "1.0",
+  "meta": {
+    "categories": ["Marketing", "AI", "Lead Generation"],
+    "pricing": {
+      "pricingModel": "PAY_PER_RESULT",
+      "trialMinutes": 10,
+      "apifyMarginPercentage": 30
+    }
+  },
+  "input": "./INPUT_SCHEMA.json",
+  "dockerfile": "./.actor/Dockerfile"
+}

@@ -1,0 +1,29 @@
+# Dependencies (installed fresh inside the image)
+node_modules/
+
+# Apify local storage
+apify_storage/
+storage/key_value_stores/
+storage/datasets/
+storage/request_queues/
+
+# Version control
+.git/
+.gitignore
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docs not needed at runtime
+*.md
