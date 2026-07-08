@@ -186,7 +186,19 @@ export async function audit(url, page) {
         mobileResponsive: false,
     };
 
-    // 1. Wappalyzer detection
+    // 1. Playwright feature detection — runs first and fast, while the
+    // crawler's page context is still fresh. Wappalyzer and Lighthouse below
+    // each launch their own separate Chrome instance and can take 60s+
+    // sequentially; waiting until after them risks the page context going
+    // stale (navigation/session recycling) before it's ever read.
+    try {
+        const features = await detectPageFeatures(page);
+        Object.assign(result, features);
+    } catch {
+        // ignore
+    }
+
+    // 2. Wappalyzer detection
     try {
         const wapp = await retryAsync(() => runWappalyzer(url), 1);
         const techs = wapp?.technologies || [];
@@ -207,22 +219,14 @@ export async function audit(url, page) {
         result.ecommerce = fallback.filter((t) => KNOWN_ECOMMERCE.includes(t));
     }
 
-    // 2. Lighthouse audit
+    // 3. Lighthouse audit
     try {
         const lh = await retryAsync(() => runLighthouse(url), 1);
         result.lighthousePerformance = lh.performance;
         result.lighthouseSeo = lh.seo;
         result.lighthouseBestPractices = lh.bestPractices;
     } catch {
-        // Lighthouse failed — Playwright timings will still be present below
-    }
-
-    // 3. Playwright feature detection
-    try {
-        const features = await detectPageFeatures(page);
-        Object.assign(result, features);
-    } catch {
-        // ignore
+        // Lighthouse failed — Playwright timings will still be present above
     }
 
     // Ensure derived booleans align
