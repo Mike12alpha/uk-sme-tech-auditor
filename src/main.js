@@ -19,16 +19,18 @@ async function run() {
     if (!input.startUrls || input.startUrls.length === 0) {
         throw new Error('At least one start URL is required.');
     }
-    if (input.enableEnrichment !== false && !input.proxycurlApiKey) {
-        throw new Error('proxycurlApiKey is required when enableEnrichment is true.');
-    }
 
     const maxRequests = input.maxRequestsPerCrawl || CRAWLER_DEFAULTS.maxRequestsPerCrawl;
     const minScoreThreshold = input.minScoreThreshold ?? CRAWLER_DEFAULTS.minScoreThreshold;
     const industry = input.industry || 'automotive';
     const companySize = input.companySize || 'SME';
-    const enableEnrichment = input.enableEnrichment !== false;
     const outputFormat = input.outputFormat || 'both';
+
+    let enableEnrichment = input.enableEnrichment !== false;
+    if (enableEnrichment && !input.proxycurlApiKey) {
+        Actor.log.warning('enableEnrichment is true but no proxycurlApiKey was provided. Skipping decision-maker enrichment.');
+        enableEnrichment = false;
+    }
 
     // Initialize AI scorer and enricher
     await initScorer({ baseUrl: input.ollamaBaseUrl, model: input.ollamaModel });
@@ -36,11 +38,18 @@ async function run() {
         initEnricher(input.proxycurlApiKey);
     }
 
-    // Configure UK residential proxy
-    const proxyConfiguration = await Actor.createProxyConfiguration({
-        groups: ['RESIDENTIAL'],
-        countryCode: 'GB',
-    });
+    // Configure UK residential proxy, falling back to default proxy if the
+    // account's plan doesn't include RESIDENTIAL proxy group access.
+    let proxyConfiguration;
+    try {
+        proxyConfiguration = await Actor.createProxyConfiguration({
+            groups: ['RESIDENTIAL'],
+            countryCode: 'GB',
+        });
+    } catch (err) {
+        Actor.log.warning(`RESIDENTIAL proxy group unavailable on this account (${err.message}). Falling back to default proxy configuration.`);
+        proxyConfiguration = await Actor.createProxyConfiguration();
+    }
 
     const crawler = new PlaywrightCrawler({
         requestHandler: router,
