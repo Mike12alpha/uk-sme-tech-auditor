@@ -52,8 +52,7 @@ async function run() {
     }
 
     const crawler = new PlaywrightCrawler({
-        requestHandler: router,
-        requestHandlerContext: { industry, companySize },
+        requestHandler: (ctx) => router({ ...ctx, industry, companySize }),
         maxRequestsPerCrawl: maxRequests,
         maxConcurrency: CRAWLER_DEFAULTS.maxConcurrency,
         requestHandlerTimeoutSecs: CRAWLER_DEFAULTS.requestTimeoutSeconds,
