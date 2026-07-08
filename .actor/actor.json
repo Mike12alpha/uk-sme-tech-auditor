@@ -13,5 +13,5 @@
     }
   },
   "input": "./INPUT_SCHEMA.json",
-  "dockerfile": "./.actor/Dockerfile"
+  "dockerfile": "./Dockerfile"
 }
