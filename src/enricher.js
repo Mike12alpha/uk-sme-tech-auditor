@@ -3,7 +3,7 @@
  * Rate-limited to respect Proxycurl limits.
  */
 
-import { Actor } from 'apify';
+import { Actor, log } from 'apify';
 import { retryAsync, extractDomain, sleep } from './utils.js';
 import { DECISION_MAKER_TITLES } from './constants.js';
 
@@ -84,7 +84,7 @@ export async function enrichHighScoringLeads(minScoreThreshold) {
     const { items } = await dataset.getData();
 
     const highScorers = items.filter((item) => (item.outsourcingScore || 0) >= minScoreThreshold);
-    Actor.log.info(`Enrichment: ${highScorers.length} leads match threshold ${minScoreThreshold}.`);
+    log.info(`Enrichment: ${highScorers.length} leads match threshold ${minScoreThreshold}.`);
 
     let enrichedCount = 0;
 
@@ -103,7 +103,7 @@ export async function enrichHighScoringLeads(minScoreThreshold) {
             // Persist update back to dataset by pushing corrected item
             await dataset.pushData(item);
         } catch (err) {
-            Actor.log.warning(`Enrichment failed for ${item.url}: ${err.message}`);
+            log.warning(`Enrichment failed for ${item.url}: ${err.message}`);
             item.decisionMaker = null;
             item.enrichmentStatus = 'pending';
             await dataset.pushData(item);
@@ -112,6 +112,6 @@ export async function enrichHighScoringLeads(minScoreThreshold) {
         await sleep(DELAY_MS);
     }
 
-    Actor.log.info(`Enrichment complete: ${enrichedCount}/${highScorers.length} leads enriched.`);
+    log.info(`Enrichment complete: ${enrichedCount}/${highScorers.length} leads enriched.`);
     return enrichedCount;
 }

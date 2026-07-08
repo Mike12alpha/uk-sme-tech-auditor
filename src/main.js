@@ -2,7 +2,7 @@
  * Entry point for UK SME Tech Auditor Apify Actor.
  */
 
-import { Actor } from 'apify';
+import { Actor, log } from 'apify';
 import { PlaywrightCrawler } from 'crawlee';
 import router from './routes.js';
 import { initScorer } from './aiScorer.js';
@@ -28,7 +28,7 @@ async function run() {
 
     let enableEnrichment = input.enableEnrichment !== false;
     if (enableEnrichment && !input.proxycurlApiKey) {
-        Actor.log.warning('enableEnrichment is true but no proxycurlApiKey was provided. Skipping decision-maker enrichment.');
+        log.warning('enableEnrichment is true but no proxycurlApiKey was provided. Skipping decision-maker enrichment.');
         enableEnrichment = false;
     }
 
@@ -47,7 +47,7 @@ async function run() {
             countryCode: 'GB',
         });
     } catch (err) {
-        Actor.log.warning(`RESIDENTIAL proxy group unavailable on this account (${err.message}). Falling back to default proxy configuration.`);
+        log.warning(`RESIDENTIAL proxy group unavailable on this account (${err.message}). Falling back to default proxy configuration.`);
         proxyConfiguration = await Actor.createProxyConfiguration();
     }
 
@@ -96,7 +96,7 @@ async function run() {
         const csv = generateCsv(items);
         const key = 'leads.csv';
         await Actor.setValue(key, csv, { contentType: 'text/csv' });
-        Actor.log.info(`CSV saved to key-value store as ${key}`);
+        log.info(`CSV saved to key-value store as ${key}`);
     }
 
     if (outputFormat === 'json' || outputFormat === 'both') {
@@ -111,12 +111,12 @@ async function run() {
     const cold = items.filter((i) => i.outsourcingScore < 60).length;
     const enriched = items.filter((i) => i.enrichmentStatus === 'enriched').length;
 
-    Actor.log.info('=== UK SME Tech Auditor Summary ===');
-    Actor.log.info(`Total audited: ${total}`);
-    Actor.log.info(`Hot leads (>=80): ${hot}`);
-    Actor.log.info(`Warm leads (60-79): ${warm}`);
-    Actor.log.info(`Cold/Ignore (<60): ${cold}`);
-    Actor.log.info(`Enriched leads: ${enriched}`);
+    log.info('=== UK SME Tech Auditor Summary ===');
+    log.info(`Total audited: ${total}`);
+    log.info(`Hot leads (>=80): ${hot}`);
+    log.info(`Warm leads (60-79): ${warm}`);
+    log.info(`Cold/Ignore (<60): ${cold}`);
+    log.info(`Enriched leads: ${enriched}`);
 
     await Actor.exit();
 }

@@ -4,7 +4,7 @@
  */
 
 import ollama from 'ollama';
-import { Actor } from 'apify';
+import { Actor, log } from 'apify';
 import { extractDomain, retryAsync } from './utils.js';
 import { LLM_SYSTEM_PROMPT, RULE_BASED_WEIGHTS, INDUSTRY_WEIGHTS } from './constants.js';
 
@@ -24,7 +24,7 @@ export async function initScorer(config = {}) {
     ollamaConfig = { baseUrl, model };
     kvStore = await Actor.openKeyValueStore();
 
-    Actor.log.info(`Ollama scorer configured: ${model} @ ${baseUrl}`);
+    log.info(`Ollama scorer configured: ${model} @ ${baseUrl}`);
 }
 
 /**
@@ -184,7 +184,7 @@ Return only valid JSON.`;
 
         return result;
     } catch (err) {
-        Actor.log.warning(`Ollama scoring failed for ${url}, using rule-based fallback: ${err.message}`);
+        log.warning(`Ollama scoring failed for ${url}, using rule-based fallback: ${err.message}`);
         return ruleBasedScore(techData, industry);
     }
 }
