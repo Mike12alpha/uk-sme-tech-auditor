@@ -3,12 +3,13 @@
  * Falls back to rule-based scoring if Ollama is unavailable.
  */
 
-import ollama from 'ollama';
+import { Ollama } from 'ollama';
 import { Actor, log } from 'apify';
 import { extractDomain, retryAsync } from './utils.js';
 import { LLM_SYSTEM_PROMPT, RULE_BASED_WEIGHTS, INDUSTRY_WEIGHTS } from './constants.js';
 
-let ollamaConfig = null;
+let ollamaClient = null;
+let ollamaModel = null;
 let kvStore = null;
 
 /**
@@ -21,7 +22,8 @@ export async function initScorer(config = {}) {
     const baseUrl = config.baseUrl || process.env.OLLAMA_HOST || 'http://localhost:11434';
     const model = config.model || process.env.OLLAMA_MODEL || 'llama3.2';
 
-    ollamaConfig = { baseUrl, model };
+    ollamaClient = new Ollama({ host: baseUrl });
+    ollamaModel = model;
     kvStore = await Actor.openKeyValueStore();
 
     log.info(`Ollama scorer configured: ${model} @ ${baseUrl}`);
@@ -107,7 +109,7 @@ function ruleBasedScore(techData, industry) {
  * @returns {Promise<Object>}
  */
 export async function score(techData, url, industry, companySize) {
-    if (!ollamaConfig) throw new Error('Scorer not initialized. Call initScorer first.');
+    if (!ollamaClient) throw new Error('Scorer not initialized. Call initScorer first.');
 
     const domain = extractDomain(url);
     const key = cacheKey(url);
@@ -149,8 +151,8 @@ Return only valid JSON.`;
 
     try {
         const response = await retryAsync(async () => {
-            return ollama.chat({
-                model: ollamaConfig.model,
+            return ollamaClient.chat({
+                model: ollamaModel,
                 messages: [
                     { role: 'system', content: LLM_SYSTEM_PROMPT },
                     { role: 'user', content: userPrompt },
@@ -160,7 +162,6 @@ Return only valid JSON.`;
                     temperature: 0.2,
                     num_predict: 700,
                 },
-                host: ollamaConfig.baseUrl,
             });
         }, 2);
 

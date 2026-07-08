@@ -5,9 +5,10 @@ FROM apify/actor-node-playwright-chrome:20
 # Set working directory
 WORKDIR /usr/src/app
 
-# Ensure Lighthouse can find Chrome
+# Ensure Lighthouse (via chrome-launcher) finds the base image's Chrome.
+# Playwright itself finds it independently through its "chrome" channel
+# (launchContext.useChrome in main.js), no env var needed for that.
 ENV CHROME_PATH=/usr/bin/google-chrome-stable
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
 # Wappalyzer bundles its own puppeteer, which by default downloads a second,
 # separate copy of Chrome and reads CHROMIUM_BIN for its executable path.
