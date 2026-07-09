@@ -15,7 +15,13 @@ export const CRAWLER_DEFAULTS = {
     maxRequestsPerCrawl: 100,
     minScoreThreshold: 70,
     maxConcurrency: 3,
-    requestTimeoutSeconds: 30,
+    // Each request runs Wappalyzer + Lighthouse + Playwright detection
+    // sequentially, each launching its own browser; a full audit routinely
+    // takes 60-150+ seconds. A shorter timeout causes Crawlee to reclaim
+    // and retry the request while the original attempt's browsers are
+    // still running in the background, which can crash the whole process
+    // when their operations time out with an unhandled rejection later.
+    requestTimeoutSeconds: 300,
 };
 
 export const PROXY_CONFIG = {

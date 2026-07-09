@@ -10,6 +10,16 @@ import { initEnricher, enrichHighScoringLeads } from './enricher.js';
 import { generateCsv } from './utils.js';
 import { CRAWLER_DEFAULTS } from './constants.js';
 
+// Wappalyzer and Lighthouse each manage their own browser process outside
+// Crawlee's control; a stray async operation from an abandoned/reclaimed
+// request (e.g. a Chrome DevTools timeout firing after its browser was
+// already torn down) can reject after its own try/catch has gone out of
+// scope. Without this handler that crashes the whole actor process instead
+// of just failing the one request.
+process.on('unhandledRejection', (reason) => {
+    log.warning(`Unhandled promise rejection (ignored to keep the run alive): ${reason?.stack || reason}`);
+});
+
 async function run() {
     await Actor.init();
 
