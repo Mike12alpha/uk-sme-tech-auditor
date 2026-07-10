@@ -1,10 +1,13 @@
 {
-  "icpDescription": "UK-based independent dental clinics with 5-30 staff. Best contacts are the Practice Manager or Owner. Looking for practices without an online booking system.",
-  "searchQueries": ["dental clinics"],
-  "keywords": ["dental clinic"],
-  "personaTitles": ["Practice Manager", "Owner"],
+  "icpDescription": "UK car dealerships in London. Best contacts are the Dealership Manager, Owner, or Sales Director.",
+  "searchQueries": ["car dealerships"],
+  "keywords": ["car dealerships"],
+  "personaTitles": ["Dealership Manager", "Owner", "Sales Director"],
   "location": "London, UK",
   "countryCode": "GB",
+  "directoryUrls": [
+    "https://www.yell.com/ucs/UcsSearchAction.do?keywords=car+dealerships&location=London"
+  ],
   "sources": ["googleMaps", "linkedin", "directory", "webSearch"],
   "maxResultsPerSource": 20,
   "minScoreThreshold": 0,
