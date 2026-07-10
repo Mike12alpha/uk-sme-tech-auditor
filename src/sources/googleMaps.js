@@ -94,6 +94,24 @@ async function extractPlaceDetail(page) {
     });
 }
 
+/**
+ * Apify's `proxyConfiguration.newUrl()` returns credentials embedded in the
+ * URL (`http://user:pass@host:port`). Playwright's `proxy` launch option
+ * does NOT parse that out on its own — it needs `server` to be the bare
+ * `scheme://host:port` with `username`/`password` as separate fields, or
+ * Chromium never sends a `Proxy-Authorization` header and every request
+ * fails with `ERR_INVALID_AUTH_CREDENTIALS`.
+ */
+function toPlaywrightProxy(proxyUrl) {
+    if (!proxyUrl) return undefined;
+    const parsed = new URL(proxyUrl);
+    return {
+        server: `${parsed.protocol}//${parsed.host}`,
+        username: decodeURIComponent(parsed.username),
+        password: decodeURIComponent(parsed.password),
+    };
+}
+
 export async function runGoogleMapsSource({ queries, location, maxResultsPerQuery, proxyConfiguration, countryCode, log: actorLog }) {
     const leads = [];
     const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
@@ -107,7 +125,7 @@ export async function runGoogleMapsSource({ queries, location, maxResultsPerQuer
     // channel (its own system-Chrome auto-detection) for local development.
     const launchOptions = {
         headless: true,
-        proxy: proxyUrl ? { server: proxyUrl } : undefined,
+        proxy: toPlaywrightProxy(proxyUrl),
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
     };
     if (process.env.APIFY_CHROME_EXECUTABLE_PATH) {
