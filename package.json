@@ -1,7 +1,7 @@
 {
   "name": "universal-lead-generator",
   "version": "1.0.0",
-  "description": "Universal multi-source lead generator Apify Actor - scrapes Google Maps, LinkedIn, business directories and company websites for any industry or persona, then scores leads against your ICP with Claude.",
+  "description": "Universal multi-source lead generator Apify Actor - scrapes Google Maps, LinkedIn, business directories and company websites for any industry or persona, then scores leads against your ICP with Groq.",
   "main": "src/main.js",
   "type": "module",
   "scripts": {
@@ -18,16 +18,16 @@
     "sales-prospecting",
     "web-scraping",
     "playwright",
-    "claude"
+    "groq"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.0",
     "apify": "^3.2.0",
     "cheerio": "^1.0.0",
     "crawlee": "^3.11.0",
     "csv-stringify": "^6.5.0",
+    "groq-sdk": "^0.9.1",
     "playwright": "^1.45.0",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",

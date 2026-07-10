@@ -10,7 +10,7 @@
   "minScoreThreshold": 0,
   "enrichWebsites": true,
   "fetchLinkedInPublicProfiles": true,
-  "anthropicApiKey": "YOUR_ANTHROPIC_API_KEY",
-  "anthropicModel": "claude-haiku-4-5-20251001",
+  "groqApiKey": "YOUR_GROQ_API_KEY",
+  "groqModel": "llama-3.3-70b-versatile",
   "outputFormat": "both"
 }

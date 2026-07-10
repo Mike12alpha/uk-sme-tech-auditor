@@ -86,7 +86,7 @@ export const FREE_EMAIL_PROVIDERS = [
     'icloud.com', 'live.com', 'protonmail.com', 'mail.com',
 ];
 
-export const CLAUDE_SCORER_SYSTEM_PROMPT = `You are a B2B sales research analyst. You will be given:
+export const LLM_SCORER_SYSTEM_PROMPT = `You are a B2B sales research analyst. You will be given:
 1. An Ideal Customer Profile (ICP) description written by the user (any industry, any persona, any region).
 2. A single scraped lead record (a company and/or a person).
 

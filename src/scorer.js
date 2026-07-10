@@ -1,18 +1,18 @@
 /**
  * Scores a scraped lead against the user's free-text ICP description using
- * Claude. Falls back to a simple rule-based heuristic if no API key is
- * configured, or if the Claude call fails.
+ * Groq's hosted LLM API. Falls back to a simple rule-based heuristic if no
+ * API key is configured, or if the Groq call fails.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import { CLAUDE_SCORER_SYSTEM_PROMPT } from './constants.js';
+import Groq from 'groq-sdk';
+import { LLM_SCORER_SYSTEM_PROMPT } from './constants.js';
 import { retryAsync } from './utils.js';
 
 let client = null;
-let model = 'claude-haiku-4-5-20251001';
+let model = 'llama-3.3-70b-versatile';
 
 export function initScorer({ apiKey, model: modelOverride } = {}) {
-    client = apiKey ? new Anthropic({ apiKey }) : null;
+    client = apiKey ? new Groq({ apiKey }) : null;
     if (modelOverride) model = modelOverride;
 }
 
@@ -57,20 +57,21 @@ export async function scoreLead(lead, icpDescription) {
 
     try {
         const result = await retryAsync(async () => {
-            const response = await client.messages.create({
+            const response = await client.chat.completions.create({
                 model,
                 max_tokens: 400,
-                system: CLAUDE_SCORER_SYSTEM_PROMPT,
-                messages: [{
-                    role: 'user',
-                    content: `ICP:\n${icpDescription}\n\nLead:\n${JSON.stringify(buildLeadSummary(lead), null, 2)}`,
-                }],
+                response_format: { type: 'json_object' },
+                messages: [
+                    { role: 'system', content: LLM_SCORER_SYSTEM_PROMPT },
+                    {
+                        role: 'user',
+                        content: `ICP:\n${icpDescription}\n\nLead:\n${JSON.stringify(buildLeadSummary(lead), null, 2)}`,
+                    },
+                ],
             });
-            const textBlock = response.content.find((b) => b.type === 'text');
-            if (!textBlock) throw new Error('No text content in Claude response');
-            const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error('Claude response did not contain JSON');
-            return JSON.parse(jsonMatch[0]);
+            const text = response.choices?.[0]?.message?.content;
+            if (!text) throw new Error('No content in Groq response');
+            return JSON.parse(text);
         }, 2, 800);
 
         return {

@@ -90,19 +90,19 @@
       "description": "Best-effort fetch of each discovered LinkedIn profile's public page for extra detail. Uses no cookies/login; some profiles may be behind a login wall and will keep only the search-snippet data.",
       "default": true
     },
-    "anthropicApiKey": {
-      "title": "Anthropic API key",
+    "groqApiKey": {
+      "title": "Groq API key",
       "type": "string",
-      "description": "Used to score every lead against your ICP with Claude. If omitted, a simple rule-based fallback score is used instead.",
+      "description": "Used to score every lead against your ICP via Groq's hosted LLM API. If omitted, a simple rule-based fallback score is used instead.",
       "editor": "textfield",
       "isSecret": true
     },
-    "anthropicModel": {
-      "title": "Claude model",
+    "groqModel": {
+      "title": "Groq model",
       "type": "string",
-      "description": "Claude model used for lead scoring.",
+      "description": "Groq model used for lead scoring.",
       "editor": "textfield",
-      "default": "claude-haiku-4-5-20251001"
+      "default": "llama-3.3-70b-versatile"
     },
     "outputFormat": {
       "title": "Output format",

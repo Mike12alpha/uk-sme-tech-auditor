@@ -51,9 +51,9 @@ async function run() {
         log.warning('Google Maps source is enabled but no searchQueries were provided — skipping Google Maps.');
     }
 
-    initScorer({ apiKey: input.anthropicApiKey, model: input.anthropicModel });
-    if (!input.anthropicApiKey) {
-        log.warning('No anthropicApiKey provided — leads will be scored with a rule-based fallback instead of Claude.');
+    initScorer({ apiKey: input.groqApiKey, model: input.groqModel });
+    if (!input.groqApiKey) {
+        log.warning('No groqApiKey provided — leads will be scored with a rule-based fallback instead of an LLM.');
     }
 
     let proxyConfiguration;

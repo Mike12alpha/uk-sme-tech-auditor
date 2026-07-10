@@ -1,6 +1,6 @@
 # Universal Lead Generator
 
-An Apify Actor that generates B2B/B2C leads for **any industry and any target persona** by combining four independent lead sources — Google Maps, LinkedIn, business directories, and general web search — then scores every lead against your own Ideal Customer Profile (ICP) using Claude.
+An Apify Actor that generates B2B/B2C leads for **any industry and any target persona** by combining four independent lead sources — Google Maps, LinkedIn, business directories, and general web search — then scores every lead against your own Ideal Customer Profile (ICP) using Groq's hosted LLM API.
 
 This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only audited website tech stacks for one industry. This version is fully generic: you describe who you're looking for in plain English, and it goes and finds them.
 
@@ -16,7 +16,7 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
    - **General web search** — finds company websites directly by keyword + location, for industries with no strong directory/Maps presence.
 3. **Leads are deduped and merged** across sources — a Google Maps business and a LinkedIn person at the same company become one combined lead where possible.
 4. **Website enrichment** visits each company's site (and contact page) for emails, phone numbers, and social links. If no email is found but a person's name + domain are known, it guesses common email patterns and keeps the guess only if the domain actually has mail servers (MX record) — this is a heuristic, not a real verification.
-5. **Every lead is scored 0-100 against your ICP** using Claude (or a rule-based fallback if no API key is supplied).
+5. **Every lead is scored 0-100 against your ICP** using Groq (or a rule-based fallback if no API key is supplied).
 6. **Results export** to the Apify Dataset, plus CSV/JSON in the Key-Value Store.
 
 ---
@@ -25,7 +25,7 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `icpDescription` | string | **yes** | — | Free text: who you're targeting. Drives Claude's scoring. |
+| `icpDescription` | string | **yes** | — | Free text: who you're targeting. Drives the LLM's scoring. |
 | `searchQueries` | array | no | — | Google Maps search terms, e.g. `["dental clinics"]`. Leave empty to skip Google Maps. |
 | `keywords` | array | no | `searchQueries` | Keywords used to build LinkedIn / directory / web-search queries. |
 | `personaTitles` | array | no | generic owner/founder/director list | Job titles to search for on LinkedIn. |
@@ -37,8 +37,8 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 | `minScoreThreshold` | integer | no | `0` | Only export leads scoring at/above this. |
 | `enrichWebsites` | boolean | no | `true` | Visit each lead's website for contact data. |
 | `fetchLinkedInPublicProfiles` | boolean | no | `true` | Best-effort fetch of each LinkedIn profile's public page. |
-| `anthropicApiKey` | string (secret) | no | — | Enables Claude-based scoring. Without it, a rule-based fallback is used. |
-| `anthropicModel` | string | no | `claude-haiku-4-5-20251001` | Claude model for scoring. |
+| `groqApiKey` | string (secret) | no | — | Enables Groq-based LLM scoring. Without it, a rule-based fallback is used. |
+| `groqModel` | string | no | `llama-3.3-70b-versatile` | Groq model for scoring. |
 | `outputFormat` | string | no | `both` | `json`, `csv`, or `both`. |
 
 ### Example input
@@ -50,7 +50,7 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
   "personaTitles": ["Practice Manager", "Owner"],
   "location": "London, UK",
   "countryCode": "GB",
-  "anthropicApiKey": "YOUR_ANTHROPIC_API_KEY"
+  "groqApiKey": "YOUR_GROQ_API_KEY"
 }
 ```
 
@@ -70,8 +70,8 @@ Every record in the Apify Dataset is a unified lead, regardless of which source(
 | `phone`, `address`, `city`, `country` | Contact/location details. |
 | `linkedinUrl`, `socialLinks` | Social profiles found. |
 | `rating`, `reviewsCount`, `category` | Google Maps fields (null for other sources). |
-| `icpScore` | 0-100 fit score from Claude (or the rule-based fallback). |
-| `matchedPersona`, `icpReasoning`, `suggestedApproach` | Claude's scoring explanation and outreach suggestion. |
+| `icpScore` | 0-100 fit score from the LLM (or the rule-based fallback). |
+| `matchedPersona`, `icpReasoning`, `suggestedApproach` | The LLM's scoring explanation and outreach suggestion. |
 | `sourceUrl`, `scrapedAt`, `actorVersion` | Provenance. |
 
 CSV output flattens `socialLinks` into `facebook` / `twitter` / `instagram` columns.
@@ -80,8 +80,8 @@ CSV output flattens `socialLinks` into `facebook` / `twitter` / `instagram` colu
 
 ## Setup
 
-### Anthropic API key
-Get one at [console.anthropic.com](https://console.anthropic.com/), paste it into `anthropicApiKey`. Without it, leads are still scored, just with a much cruder rule-based heuristic instead of Claude.
+### Groq API key
+Get one at [console.groq.com/keys](https://console.groq.com/keys), paste it into `groqApiKey`. Without it, leads are still scored, just with a much cruder rule-based heuristic instead of an LLM.
 
 ### Proxy
 Uses Apify Proxy (RESIDENTIAL group) by default, falling back to standard datacenter proxy if your account doesn't have residential access. Google Maps and LinkedIn both actively push back on obvious datacenter traffic, so residential proxy is strongly recommended for real runs.
@@ -117,7 +117,7 @@ apify run -p --input=input.json
 | `Google Maps: 0 places found` | Google served a different DOM layout, or a CAPTCHA/consent page | Try a narrower query, add `location`, or check proxy is set to `RESIDENTIAL`. |
 | `LinkedIn: 0 leads` | DuckDuckGo returned no indexed results for the query | Broaden `personaTitles`/`keywords`, or DuckDuckGo itself blocked the request — retry later. |
 | Lots of `emailStatus: null` | No email found on-site or via contact page, and no MX-verified guess possible | Expected for sites with no visible email; lower your expectations for those leads rather than treating it as a bug. |
-| `AI scoring failed` in `icpReasoning` | Claude API error (bad key, rate limit, network) | Check `anthropicApiKey`; the actor still runs using the rule-based fallback. |
+| `AI scoring failed` in `icpReasoning` | Groq API error (bad key, rate limit, network) | Check `groqApiKey`; the actor still runs using the rule-based fallback. |
 | Few directory results | Target directory is JS-rendered | Supply direct company URLs via `searchQueries`/`keywords` for the other sources instead. |
 
 ---
@@ -125,7 +125,7 @@ apify run -p --input=input.json
 ## Security & compliance
 
 - API keys are read from Actor input only — never hardcoded or logged.
-- `anthropicApiKey` is marked as a secret input.
+- `groqApiKey` is marked as a secret input.
 - No LinkedIn credentials/cookies are ever requested or used.
 - Output contains only extracted structured data — no raw HTML.
 - Directory/web-search crawling reads target site `robots.txt` where practical.
