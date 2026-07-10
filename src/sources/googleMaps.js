@@ -19,15 +19,28 @@ chromium.use(StealthPlugin());
 const FEED_SELECTOR = 'div[role="feed"]';
 const MAX_SCROLL_ROUNDS = 40;
 
-/** Best-effort screenshot + HTML dump on failure, to diagnose blind cloud runs. */
+function withTimeout(promise, ms) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms)),
+    ]);
+}
+
+/**
+ * Best-effort screenshot + HTML dump on failure, to diagnose blind cloud
+ * runs. A page stuck mid-navigation can make `screenshot()`/`content()`
+ * hang indefinitely themselves, so every call here is time-boxed —
+ * diagnostics must never be able to add their own hang on top of the
+ * failure they're trying to explain.
+ */
 async function captureDebugArtifacts(page, query) {
     if (!page || page.isClosed()) return;
     const slug = query.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-    const screenshot = await page.screenshot().catch(() => null);
+    const screenshot = await page.screenshot({ timeout: 10000 }).catch(() => null);
     if (screenshot) {
         await Actor.setValue(`DEBUG-screenshot-${slug}`, screenshot, { contentType: 'image/png' });
     }
-    const html = await page.content().catch(() => null);
+    const html = await withTimeout(page.content(), 10000).catch(() => null);
     if (html) {
         await Actor.setValue(`DEBUG-html-${slug}`, html, { contentType: 'text/html' });
     }
