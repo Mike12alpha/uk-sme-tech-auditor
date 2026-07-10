@@ -1,7 +1,7 @@
 {
-  "name": "uk-sme-tech-auditor",
+  "name": "universal-lead-generator",
   "version": "1.0.0",
-  "description": "UK SME Tech Stack Auditor & IT Outsourcing Lead Scorer - Apify Actor for Glosix Systems",
+  "description": "Universal multi-source lead generator Apify Actor - scrapes Google Maps, LinkedIn, business directories and company websites for any industry or persona, then scores leads against your ICP with Claude.",
   "main": "src/main.js",
   "type": "module",
   "scripts": {
@@ -11,29 +11,28 @@
   },
   "keywords": [
     "apify",
-    "uk",
-    "sme",
-    "tech-stack",
     "lead-generation",
-    "it-outsourcing",
-    "wappalyzer",
-    "lighthouse"
+    "google-maps",
+    "linkedin",
+    "b2b",
+    "sales-prospecting",
+    "web-scraping",
+    "playwright",
+    "claude"
   ],
-  "author": "Glosix Systems",
+  "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
     "apify": "^3.2.0",
-    "chrome-launcher": "^1.1.2",
+    "cheerio": "^1.0.0",
     "crawlee": "^3.11.0",
     "csv-stringify": "^6.5.0",
-    "lighthouse": "^12.1.0",
-    "ollama": "^0.5.0",
     "playwright": "^1.45.0",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "tldts": "^6.1.0",
-    "user-agents": "^1.1.0",
-    "wappalyzer": "^6.10.66"
+    "user-agents": "^1.1.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0"

@@ -1,16 +1,11 @@
 {
   "actorSpecification": 1,
-  "name": "uk-sme-tech-auditor",
-  "title": "UK SME Tech Stack Auditor & IT Outsourcing Lead Scorer",
-  "description": "Audits UK SME websites for tech debt, scores outsourcing likelihood 0-100, and enriches with decision maker contact data. Perfect for IT staff augmentation agencies.",
-  "version": "1.0",
+  "name": "universal-lead-generator",
+  "title": "Universal Lead Generator - Google Maps, LinkedIn, Directories & Web",
+  "description": "Generates B2B/B2C leads for any industry and any target persona by combining Google Maps, LinkedIn, business directories, and general web search, then scores every lead against your ICP with Claude.",
+  "version": "2.0",
   "meta": {
-    "categories": ["Marketing", "AI", "Lead Generation"],
-    "pricing": {
-      "pricingModel": "PAY_PER_RESULT",
-      "trialMinutes": 10,
-      "apifyMarginPercentage": 30
-    }
+    "categories": ["Marketing", "AI", "Lead Generation"]
   },
   "input": "./INPUT_SCHEMA.json",
   "dockerfile": "./Dockerfile"

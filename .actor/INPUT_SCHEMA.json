@@ -1,82 +1,116 @@
 {
-  "title": "UK SME Tech Auditor Input",
-  "description": "Input schema for auditing UK SME websites and scoring IT outsourcing leads.",
+  "title": "Universal Lead Generator Input",
+  "description": "Generate leads for any industry and any persona from Google Maps, LinkedIn, business directories, and general web search.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
-    "startUrls": {
-      "title": "Start URLs",
-      "type": "array",
-      "description": "List of UK company websites or industry directory pages to audit.",
-      "editor": "requestListSources",
-      "prefill": [
-        { "url": "https://www.yell.com/ucs/UcsSearchAction.do?keywords=car+dealerships&location=London" }
-      ]
+    "icpDescription": {
+      "title": "Ideal Customer Profile (ICP)",
+      "type": "string",
+      "description": "Free text describing who you're targeting: industry, persona/job titles, company size, region, pain points, etc. Used by Claude to score every lead's fit.",
+      "editor": "textarea",
+      "prefill": "UK-based independent dental clinics with 5-30 staff. Best contacts are the Practice Manager or Owner. Looking for practices without an online booking system."
     },
-    "maxRequestsPerCrawl": {
-      "title": "Max Requests Per Crawl",
+    "searchQueries": {
+      "title": "Google Maps search queries",
+      "type": "array",
+      "description": "What to search for on Google Maps, e.g. [\"dental clinics\", \"dentists\"]. Leave empty to skip Google Maps.",
+      "editor": "stringList",
+      "prefill": ["dental clinics"]
+    },
+    "keywords": {
+      "title": "Keywords (LinkedIn / directory / web search)",
+      "type": "array",
+      "description": "Industry/company keywords used to build LinkedIn, directory, and web-search queries. Defaults to searchQueries if left empty.",
+      "editor": "stringList"
+    },
+    "personaTitles": {
+      "title": "Persona job titles (LinkedIn)",
+      "type": "array",
+      "description": "Job titles to search for on LinkedIn, e.g. [\"Practice Manager\", \"Owner\"]. Defaults to a generic owner/founder/director list.",
+      "editor": "stringList"
+    },
+    "location": {
+      "title": "Location",
+      "type": "string",
+      "description": "City, region, or country to target, e.g. \"London, UK\". Used across all sources.",
+      "editor": "textfield",
+      "prefill": "London, UK"
+    },
+    "countryCode": {
+      "title": "Proxy country code",
+      "type": "string",
+      "description": "2-letter country code for residential proxy routing, e.g. GB, US. Leave empty for no country restriction.",
+      "editor": "textfield",
+      "prefill": "GB"
+    },
+    "directoryUrls": {
+      "title": "Directory URLs (optional)",
+      "type": "array",
+      "description": "Specific business-directory search/listing URLs to crawl (Yell, Thomson Local, etc). If empty and the directory source is enabled, a Yell search is built automatically from keywords + location.",
+      "editor": "requestListSources"
+    },
+    "sources": {
+      "title": "Lead sources to run",
+      "type": "array",
+      "description": "Which sources to run. Defaults to all four.",
+      "editor": "select",
+      "items": {
+        "type": "string",
+        "enum": ["googleMaps", "linkedin", "directory", "webSearch"],
+        "enumTitles": ["Google Maps", "LinkedIn", "Business directories", "General web search"]
+      },
+      "default": ["googleMaps", "linkedin", "directory", "webSearch"]
+    },
+    "maxResultsPerSource": {
+      "title": "Max results per source",
       "type": "integer",
-      "description": "Maximum number of pages the crawler will process.",
-      "default": 100,
+      "description": "Cap on how many leads each individual source (per query) can return.",
+      "default": 50,
       "minimum": 1,
       "maximum": 1000
     },
     "minScoreThreshold": {
-      "title": "Minimum Score Threshold",
+      "title": "Minimum ICP score threshold",
       "type": "integer",
-      "description": "Only enrich leads with outsourcing score equal to or above this threshold.",
-      "default": 70,
+      "description": "Only export leads scoring at or above this value (0-100).",
+      "default": 0,
       "minimum": 0,
       "maximum": 100
     },
-    "industry": {
-      "title": "Industry",
-      "type": "string",
-      "description": "Target industry for scoring and pitch angle.",
-      "enum": ["automotive", "healthcare", "retail", "logistics", "fintech"],
-      "default": "automotive"
-    },
-    "companySize": {
-      "title": "Company Size",
-      "type": "string",
-      "description": "Typical size category of target companies.",
-      "enum": ["startup", "SME", "enterprise"],
-      "default": "SME"
-    },
-    "enableEnrichment": {
-      "title": "Enable Decision Maker Enrichment",
+    "enrichWebsites": {
+      "title": "Enrich leads from their websites",
       "type": "boolean",
-      "description": "Use Proxycurl to enrich high-scoring leads with CTO/IT Director/Founder data.",
+      "description": "Visit each lead's website (and contact page) to extract emails, phone numbers, and social links.",
       "default": true
     },
-    "proxycurlApiKey": {
-      "title": "Proxycurl API Key",
+    "fetchLinkedInPublicProfiles": {
+      "title": "Fetch LinkedIn public profile pages",
+      "type": "boolean",
+      "description": "Best-effort fetch of each discovered LinkedIn profile's public page for extra detail. Uses no cookies/login; some profiles may be behind a login wall and will keep only the search-snippet data.",
+      "default": true
+    },
+    "anthropicApiKey": {
+      "title": "Anthropic API key",
       "type": "string",
-      "description": "Required if enrichment is enabled. Get one at https://nubela.co/proxycurl.",
+      "description": "Used to score every lead against your ICP with Claude. If omitted, a simple rule-based fallback score is used instead.",
       "editor": "textfield",
       "isSecret": true
     },
-    "ollamaBaseUrl": {
-      "title": "Ollama Base URL",
+    "anthropicModel": {
+      "title": "Claude model",
       "type": "string",
-      "description": "Base URL of your Ollama server. Leave default for local Ollama.",
-      "default": "http://localhost:11434",
-      "editor": "textfield"
-    },
-    "ollamaModel": {
-      "title": "Ollama Model",
-      "type": "string",
-      "description": "Open-source model to use. Must be available/pulled in Ollama.",
-      "default": "llama3.2",
-      "enum": ["llama3.2", "llama3.1", "mistral", "qwen2.5", "phi3"]
+      "description": "Claude model used for lead scoring.",
+      "editor": "textfield",
+      "default": "claude-haiku-4-5-20251001"
     },
     "outputFormat": {
-      "title": "Output Format",
+      "title": "Output format",
       "type": "string",
-      "description": "Choose whether to output JSON, CSV, or both.",
+      "description": "Choose whether to output JSON, CSV, or both to the key-value store (the Apify Dataset always gets the structured records).",
       "enum": ["json", "csv", "both"],
       "default": "both"
     }
   },
-  "required": ["startUrls"]
+  "required": ["icpDescription"]
 }

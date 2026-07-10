@@ -1,20 +1,8 @@
-# Apify Actor Dockerfile for UK SME Tech Auditor
-# Uses official Playwright + Chrome base image
+# Apify Actor Dockerfile for Universal Lead Generator
+# Uses official Playwright + Chrome base image (needed for the Google Maps source)
 FROM apify/actor-node-playwright-chrome:20
 
-# Set working directory
 WORKDIR /usr/src/app
-
-# Ensure Lighthouse (via chrome-launcher) finds the base image's Chrome.
-# Playwright itself finds it independently through its "chrome" channel
-# (launchContext.useChrome in main.js), no env var needed for that.
-ENV CHROME_PATH=/usr/bin/google-chrome-stable
-
-# Wappalyzer bundles its own puppeteer, which by default downloads a second,
-# separate copy of Chrome and reads CHROMIUM_BIN for its executable path.
-# Point it at the Chrome already provided by the base image instead.
-ENV CHROMIUM_BIN=/usr/bin/google-chrome-stable
-ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Copy package files and install dependencies (npm ci for reproducible builds)
 COPY package*.json ./
@@ -26,5 +14,4 @@ RUN npm --quiet set progress=false \
 # Copy actor source code
 COPY . ./
 
-# Run the actor
 CMD ["node", "src/main.js"]

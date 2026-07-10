@@ -1,55 +1,56 @@
-# 🇬🇧 UK SME Tech Stack Auditor & IT Outsourcing Lead Scorer
+# Universal Lead Generator
 
-An Apify Actor that audits UK SME websites, scores their likelihood of needing IT staff augmentation / outsourcing, and enriches hot leads with decision-maker contact data.
+An Apify Actor that generates B2B/B2C leads for **any industry and any target persona** by combining four independent lead sources — Google Maps, LinkedIn, business directories, and general web search — then scores every lead against your own Ideal Customer Profile (ICP) using Claude.
 
-Built for **Glosix Systems** and published on the **Apify Marketplace**.
-
----
-
-## What this Actor does
-
-1. **Crawls start URLs** — company websites or directory pages (Yell, Clutch, Autotrader dealers, etc.).
-2. **Detects technology** — CMS, frameworks, analytics, e-commerce platforms, server software using Wappalyzer.
-3. **Audits performance** — runs Lighthouse for Performance, SEO, and Best Practices scores.
-4. **Checks digital maturity** — SSL, booking systems, contact forms, e-commerce, page load time, mobile responsiveness.
-5. **Scores outsourcing likelihood** — 0-100 using an open-source LLM via Ollama, with rule-based fallback.
-6. **Enriches high-scoring leads** — finds CTO / IT Director / Founder profiles via Proxycurl.
-7. **Exports results** — structured JSON to Apify Dataset and CSV to Key-Value Store.
+This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only audited website tech stacks for one industry. This version is fully generic: you describe who you're looking for in plain English, and it goes and finds them.
 
 ---
 
-## Input schema
+## How it works
+
+1. **You describe your ICP** in plain text — industry, persona/job titles, company size, region, pain points, whatever matters to you.
+2. **Four sources run independently** (toggle any of them off):
+   - **Google Maps** — local/regional businesses matching your search queries (name, address, phone, website, rating, category).
+   - **LinkedIn** — decision-makers matching your persona job titles, discovered via public search-engine indexing (no login/cookies required, so no LinkedIn account is put at risk — see [Limitations](#limitations)).
+   - **Business directories** — Yell and similar listing sites, or your own directory URLs; extracts outbound company links.
+   - **General web search** — finds company websites directly by keyword + location, for industries with no strong directory/Maps presence.
+3. **Leads are deduped and merged** across sources — a Google Maps business and a LinkedIn person at the same company become one combined lead where possible.
+4. **Website enrichment** visits each company's site (and contact page) for emails, phone numbers, and social links. If no email is found but a person's name + domain are known, it guesses common email patterns and keeps the guess only if the domain actually has mail servers (MX record) — this is a heuristic, not a real verification.
+5. **Every lead is scored 0-100 against your ICP** using Claude (or a rule-based fallback if no API key is supplied).
+6. **Results export** to the Apify Dataset, plus CSV/JSON in the Key-Value Store.
+
+---
+
+## Input
 
 | Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `startUrls` | array | yes | — | List of URLs to start crawling. Can be company sites or directories. |
-| `maxRequestsPerCrawl` | integer | no | `100` | Max pages to process (1-1000). |
-| `minScoreThreshold` | integer | no | `70` | Only enrich leads with score ≥ this. |
-| `industry` | string | no | `automotive` | Target industry: `automotive`, `healthcare`, `retail`, `logistics`, `fintech`. |
-| `companySize` | string | no | `SME` | Target size: `startup`, `SME`, `enterprise`. |
-| `enableEnrichment` | boolean | no | `true` | Enable Proxycurl decision-maker enrichment. |
-| `proxycurlApiKey` | string | conditional | — | Required if `enableEnrichment` is true. |
-| `ollamaBaseUrl` | string | no | `http://localhost:11434` | URL of your Ollama server. |
-| `ollamaModel` | string | no | `llama3.2` | Open-source model to use (must be pulled). |
+|---|---|---|---|---|
+| `icpDescription` | string | **yes** | — | Free text: who you're targeting. Drives Claude's scoring. |
+| `searchQueries` | array | no | — | Google Maps search terms, e.g. `["dental clinics"]`. Leave empty to skip Google Maps. |
+| `keywords` | array | no | `searchQueries` | Keywords used to build LinkedIn / directory / web-search queries. |
+| `personaTitles` | array | no | generic owner/founder/director list | Job titles to search for on LinkedIn. |
+| `location` | string | no | — | City/region/country, used across all sources. |
+| `countryCode` | string | no | — | 2-letter code for residential proxy routing (e.g. `GB`, `US`). |
+| `directoryUrls` | array | no | auto-built Yell search | Specific directory listing URLs to crawl. |
+| `sources` | array | no | all four | Which sources to run: `googleMaps`, `linkedin`, `directory`, `webSearch`. |
+| `maxResultsPerSource` | integer | no | `50` | Cap per source per query. |
+| `minScoreThreshold` | integer | no | `0` | Only export leads scoring at/above this. |
+| `enrichWebsites` | boolean | no | `true` | Visit each lead's website for contact data. |
+| `fetchLinkedInPublicProfiles` | boolean | no | `true` | Best-effort fetch of each LinkedIn profile's public page. |
+| `anthropicApiKey` | string (secret) | no | — | Enables Claude-based scoring. Without it, a rule-based fallback is used. |
+| `anthropicModel` | string | no | `claude-haiku-4-5-20251001` | Claude model for scoring. |
 | `outputFormat` | string | no | `both` | `json`, `csv`, or `both`. |
 
 ### Example input
 
 ```json
 {
-  "startUrls": [
-    { "url": "https://www.yell.com/ucs/UcsSearchAction.do?keywords=car+dealerships&location=London" },
-    { "url": "https://www.autotrader.co.uk/dealers" }
-  ],
-  "maxRequestsPerCrawl": 50,
-  "minScoreThreshold": 70,
-  "industry": "automotive",
-  "companySize": "SME",
-  "enableEnrichment": true,
-  "proxycurlApiKey": "YOUR_PROXYCURL_KEY",
-  "ollamaBaseUrl": "http://localhost:11434",
-  "ollamaModel": "llama3.2",
-  "outputFormat": "both"
+  "icpDescription": "UK-based independent dental clinics with 5-30 staff. Best contacts are the Practice Manager or Owner. Looking for practices without an online booking system.",
+  "searchQueries": ["dental clinics"],
+  "personaTitles": ["Practice Manager", "Owner"],
+  "location": "London, UK",
+  "countryCode": "GB",
+  "anthropicApiKey": "YOUR_ANTHROPIC_API_KEY"
 }
 ```
 
@@ -57,129 +58,74 @@ Built for **Glosix Systems** and published on the **Apify Marketplace**.
 
 ## Output schema
 
-Each record pushed to the Apify Dataset contains:
+Every record in the Apify Dataset is a unified lead, regardless of which source(s) it came from:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `url` | string | Audited website URL. |
-| `companyName` | string | Extracted company name or domain fallback. |
-| `industry` | string | Input industry. |
-| `companySize` | string | Input company size. |
-| `techStack` | array | Detected technologies. |
-| `lighthousePerformance` | number | Lighthouse performance score (0-100). |
-| `lighthouseSeo` | number | Lighthouse SEO score (0-100). |
-| `lighthouseBestPractices` | number | Lighthouse best practices score (0-100). |
-| `hasSsl` | boolean | Whether HTTPS is active. |
-| `hasBookingSystem` | boolean | Booking/appointment signals detected. |
-| `hasEcommerce` | boolean | E-commerce signals detected. |
-| `hasContactForm` | boolean | Contact form detected. |
-| `pageLoadTime` | number | Navigation-to-load timing in ms. |
-| `outsourcingScore` | number | 0-100 AI/rule-based score. |
-| `painPoints` | array | Identified pain points. |
-| `reasoning` | string | Why the score was given. |
-| `glosixPitchAngle` | string | Suggested sales pitch. |
-| `recommendedApproach` | string | Recommended outreach action. |
-| `decisionMaker` | object \| null | `{ name, title, linkedinUrl, email }` |
-| `enrichmentStatus` | string | `enriched`, `pending`, or `skipped`. |
-| `scrapedAt` | string | ISO timestamp. |
-| `actorVersion` | string | Actor version. |
+| Field | Description |
+|---|---|
+| `source` | `google_maps`, `linkedin`, `directory`, or `web_search`. |
+| `type` | `company` or `person`. |
+| `companyName`, `personName`, `jobTitle` | Who/what the lead is. |
+| `website`, `domain` | Company website and root domain. |
+| `email`, `emailStatus` | `found` (scraped) or `guessed` (pattern + MX check). |
+| `phone`, `address`, `city`, `country` | Contact/location details. |
+| `linkedinUrl`, `socialLinks` | Social profiles found. |
+| `rating`, `reviewsCount`, `category` | Google Maps fields (null for other sources). |
+| `icpScore` | 0-100 fit score from Claude (or the rule-based fallback). |
+| `matchedPersona`, `icpReasoning`, `suggestedApproach` | Claude's scoring explanation and outreach suggestion. |
+| `sourceUrl`, `scrapedAt`, `actorVersion` | Provenance. |
 
-CSV output flattens nested objects (e.g. `decisionMaker.name` becomes `decisionMakerName`).
+CSV output flattens `socialLinks` into `facebook` / `twitter` / `instagram` columns.
 
 ---
 
 ## Setup
 
-### Ollama (open-source LLM)
+### Anthropic API key
+Get one at [console.anthropic.com](https://console.anthropic.com/), paste it into `anthropicApiKey`. Without it, leads are still scored, just with a much cruder rule-based heuristic instead of Claude.
 
-This actor uses [Ollama](https://ollama.com/) to run open-source models locally. No paid AI API is required.
+### Proxy
+Uses Apify Proxy (RESIDENTIAL group) by default, falling back to standard datacenter proxy if your account doesn't have residential access. Google Maps and LinkedIn both actively push back on obvious datacenter traffic, so residential proxy is strongly recommended for real runs.
 
-1. Install Ollama: [https://ollama.com/download](https://ollama.com/download)
-2. Pull a verified model:
-   ```bash
-   ollama pull llama3.2
-   ```
-3. Ensure Ollama is running (default: `http://localhost:11434`).
-4. Set `ollamaBaseUrl` and `ollamaModel` in the input. If Ollama is unreachable, the actor falls back to rule-based scoring.
-
-> For Apify cloud runs you must expose an Ollama instance the actor can reach, or disable AI scoring and rely on the built-in rule-based fallback.
-
-### Proxycurl API key
-
-1. Sign up at [https://nubela.co/proxycurl](https://nubela.co/proxycurl)
-2. Copy your API key from the dashboard.
-3. Paste it into the `proxycurlApiKey` input field.
-4. The actor respects Proxycurl rate limits (max 10 requests/minute).
+Confirmed in testing: DuckDuckGo's HTML endpoint (used for the LinkedIn and web-search sources) will rate-limit/block a single fixed IP after a handful of requests in quick succession, independent of any proxy setting on Google's or LinkedIn's own sites. The LinkedIn/web-search sources already throttle their own requests and run at `maxConcurrency: 1` to stay under that, but if you run large `keywords`/`personaTitles` lists back-to-back across multiple actor runs from the same IP, expect these two sources to start failing gracefully (0 leads, no crash) until the block cools down. Apify's residential proxy rotates IPs per request and avoids this in practice.
 
 ---
 
-## Sample use cases
+## Limitations
 
-### Automotive
-Generate leads for an IT outsourcing agency serving UK car dealerships. Target directories like Yell or Autotrader dealer pages, score sites with outdated WordPress / no booking systems, and enrich CTO/Founder contacts.
-
-### Healthcare
-Audit GP practices, dental clinics, and care providers. Prioritise SSL compliance, online booking, and mobile performance. Pitch GDPR-aware remote developers.
-
-### Retail
-Find independent UK retailers with slow Shopify/Magento/WooCommerce sites. Recommend checkout optimisation and platform upgrades.
-
-### Logistics
-Score haulage and courier firms on legacy systems, missing booking portals, and mobile performance.
-
-### Fintech
-Identify smaller fintechs and financial advisers with outdated web stacks and pitch scalable remote engineering teams.
-
----
-
-## Pricing on Apify Store
-
-- **$0.15 per qualified lead** (score ≥ threshold), **or**
-- **$49 per 1,000 audited sites**.
-- **10-minute free trial** included.
-- Apify platform margin already configured at 30%.
+- **Google Maps** DOM markup is obfuscated and changes over time. This actor targets the more stable `data-item-id`/`role` accessibility attributes rather than CSS classes, but expect occasional breakage when Google ships a redesign.
+- **LinkedIn**: this actor does **not** log into LinkedIn or use session cookies — that requires handing over a real account, which risks that account being banned and carries real ToS/legal exposure (see *hiQ Labs v. LinkedIn* and LinkedIn's active anti-scraping enforcement). Instead it discovers public profiles indexed by search engines (DuckDuckGo) and parses name/title/company straight out of the search snippet — that snippet data is the main payload. The optional public-profile-page fetch (`fetchLinkedInPublicProfiles`) is a bonus-only layer: in testing, LinkedIn returns an immediate bot-block response (HTTP 999) to anonymous, cookie-less requests essentially every time, proxy or not, so treat any extra fields it adds as a bonus, not something to rely on. This is a deliberate trade-off — real coverage in exchange for zero risk to a LinkedIn account.
+- **Email guesses** are pattern-based heuristics confirmed only by a DNS MX lookup (does the domain receive mail at all) — not a real SMTP/deliverability check. Treat `emailStatus: "guessed"` accordingly.
+- **Directories/web search** rely on plain HTTP + HTML parsing (no JS execution). Confirmed in testing: **Yell.com sits behind Cloudflare and returns HTTP 403 to plain requests** — the built-in auto-generated Yell query (used only when you don't supply `directoryUrls`) will typically yield zero results out of the box for that reason, not a bug in the parsing logic. For real directory coverage, supply `directoryUrls` pointing at directories that don't challenge plain HTTP clients (many smaller/regional directories don't), or lean on the Google Maps / LinkedIn / web-search sources instead, which don't have this problem.
 
 ---
 
 ## Local testing
 
 ```bash
-# Install dependencies
 npm install
-
-# Run with Apify CLI (requires Apify account + proxy access)
-apify run -p
-
-# Or run directly with input file
-APIFY_TOKEN=xxx apify run -p --input=input.json
+apify run -p --input=input.json
 ```
 
-> Note: `apify run -p` uses Apify Proxy. You need an Apify account with proxy access.
+> `apify run -p` uses Apify Proxy and requires an Apify account with proxy access.
 
 ---
 
 ## Troubleshooting
 
 | Issue | Cause | Solution |
-|-------|-------|----------|
-| `Ollama scoring failed` | Ollama not running or model not pulled | Start Ollama and pull the model. Fallback rule-based scoring still runs. |
-| `Proxycurl HTTP 429` | Rate limit hit | The actor already rate-limits to 10 req/min; wait and retry. |
-| `Lighthouse scores are null` | Chrome launch failed | The actor falls back to Playwright timing APIs. |
-| `Wappalyzer returned no tech` | Site blocks detection | The actor falls back to meta-tag detection. |
-| `No leads enriched` | Score threshold too high | Lower `minScoreThreshold` or verify Proxycurl key. |
-| `Directory not detected` | Unknown domain | Add custom start URLs directly as company sites. |
+|---|---|---|
+| `Google Maps: 0 places found` | Google served a different DOM layout, or a CAPTCHA/consent page | Try a narrower query, add `location`, or check proxy is set to `RESIDENTIAL`. |
+| `LinkedIn: 0 leads` | DuckDuckGo returned no indexed results for the query | Broaden `personaTitles`/`keywords`, or DuckDuckGo itself blocked the request — retry later. |
+| Lots of `emailStatus: null` | No email found on-site or via contact page, and no MX-verified guess possible | Expected for sites with no visible email; lower your expectations for those leads rather than treating it as a bug. |
+| `AI scoring failed` in `icpReasoning` | Claude API error (bad key, rate limit, network) | Check `anthropicApiKey`; the actor still runs using the rule-based fallback. |
+| Few directory results | Target directory is JS-rendered | Supply direct company URLs via `searchQueries`/`keywords` for the other sources instead. |
 
 ---
 
 ## Security & compliance
 
-- API keys are read from Apify input / environment variables — **never hardcoded**.
-- Proxycurl key is marked as a secret input and never logged.
+- API keys are read from Actor input only — never hardcoded or logged.
+- `anthropicApiKey` is marked as a secret input.
+- No LinkedIn credentials/cookies are ever requested or used.
 - Output contains only extracted structured data — no raw HTML.
-- The actor uses UK residential proxies (`countryCode: GB`) for local relevance.
-
----
-
-## Author
-
-**Glosix Systems** — IT Staff Augmentation for UK SMEs.
+- Directory/web-search crawling reads target site `robots.txt` where practical.

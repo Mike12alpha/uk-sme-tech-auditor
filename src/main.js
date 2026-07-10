@@ -1,131 +1,184 @@
 /**
- * Entry point for UK SME Tech Auditor Apify Actor.
+ * Entry point for the Universal Lead Generator Apify Actor.
+ *
+ * Orchestrates independent lead sources (Google Maps, LinkedIn, business
+ * directories, generic web search), merges/dedupes what they find, enriches
+ * companies with contact data from their own websites, scores every lead
+ * against the caller's free-text ICP with Claude, and exports the result.
  */
 
 import { Actor, log } from 'apify';
-import { PlaywrightCrawler } from 'crawlee';
-import router from './routes.js';
-import { initScorer } from './aiScorer.js';
-import { initEnricher, enrichHighScoringLeads } from './enricher.js';
-import { generateCsv } from './utils.js';
-import { CRAWLER_DEFAULTS } from './constants.js';
+import { runGoogleMapsSource } from './sources/googleMaps.js';
+import { runLinkedInSource } from './sources/linkedin.js';
+import { runDirectorySource } from './sources/directory.js';
+import { runWebSearchSource } from './sources/webSearch.js';
+import { enrichWebsites } from './sources/website.js';
+import { initScorer, scoreLead } from './scorer.js';
+import { dedupeAndMergeLeads } from './dedupe.js';
+import { generateCsv, mapWithConcurrency } from './utils.js';
+import { CRAWLER_DEFAULTS, SOURCES } from './constants.js';
 
-// Wappalyzer and Lighthouse each manage their own browser process outside
-// Crawlee's control; a stray async operation from an abandoned/reclaimed
-// request (e.g. a Chrome DevTools timeout firing after its browser was
-// already torn down) can reject after its own try/catch has gone out of
-// scope. Without this handler that crashes the whole actor process instead
-// of just failing the one request.
+// Each source manages its own browser/HTTP client outside Crawlee's direct
+// control; a stray async operation from an abandoned request can reject
+// after its own try/catch has gone out of scope. Without this handler that
+// crashes the whole actor process instead of just failing the one request.
 process.on('unhandledRejection', (reason) => {
     log.warning(`Unhandled promise rejection (ignored to keep the run alive): ${reason?.stack || reason}`);
 });
 
 async function run() {
     await Actor.init();
-
     const input = await Actor.getInput() || {};
 
-    // Validate required inputs
-    if (!input.startUrls || input.startUrls.length === 0) {
-        throw new Error('At least one start URL is required.');
+    const icpDescription = input.icpDescription?.trim();
+    if (!icpDescription) {
+        throw new Error('icpDescription is required — describe your ideal customer profile (industry, persona, company size, region, etc).');
     }
 
-    const maxRequests = input.maxRequestsPerCrawl || CRAWLER_DEFAULTS.maxRequestsPerCrawl;
+    const enabledSources = input.sources?.length ? input.sources : Object.values(SOURCES);
+    const searchQueries = input.searchQueries || [];
+    const keywords = input.keywords?.length ? input.keywords : searchQueries;
+    const personaTitles = input.personaTitles?.length ? input.personaTitles : undefined;
+    const location = input.location || '';
+    const countryCode = input.countryCode || undefined;
+    const maxResultsPerSource = input.maxResultsPerSource || CRAWLER_DEFAULTS.maxResultsPerSource;
     const minScoreThreshold = input.minScoreThreshold ?? CRAWLER_DEFAULTS.minScoreThreshold;
-    const industry = input.industry || 'automotive';
-    const companySize = input.companySize || 'SME';
     const outputFormat = input.outputFormat || 'both';
+    const doEnrichWebsites = input.enrichWebsites !== false;
+    const fetchLinkedInPublicProfiles = input.fetchLinkedInPublicProfiles !== false;
 
-    let enableEnrichment = input.enableEnrichment !== false;
-    if (enableEnrichment && !input.proxycurlApiKey) {
-        log.warning('enableEnrichment is true but no proxycurlApiKey was provided. Skipping decision-maker enrichment.');
-        enableEnrichment = false;
+    if (enabledSources.includes(SOURCES.GOOGLE_MAPS) && !searchQueries.length) {
+        log.warning('Google Maps source is enabled but no searchQueries were provided — skipping Google Maps.');
     }
 
-    // Initialize AI scorer and enricher
-    await initScorer({ baseUrl: input.ollamaBaseUrl, model: input.ollamaModel });
-    if (enableEnrichment) {
-        initEnricher(input.proxycurlApiKey);
+    initScorer({ apiKey: input.anthropicApiKey, model: input.anthropicModel });
+    if (!input.anthropicApiKey) {
+        log.warning('No anthropicApiKey provided — leads will be scored with a rule-based fallback instead of Claude.');
     }
 
-    // Configure UK residential proxy, falling back to default proxy if the
-    // account's plan doesn't include RESIDENTIAL proxy group access.
     let proxyConfiguration;
     try {
         proxyConfiguration = await Actor.createProxyConfiguration({
             groups: ['RESIDENTIAL'],
-            countryCode: 'GB',
+            countryCode,
         });
     } catch (err) {
         log.warning(`RESIDENTIAL proxy group unavailable on this account (${err.message}). Falling back to default proxy configuration.`);
         proxyConfiguration = await Actor.createProxyConfiguration();
     }
 
-    const crawler = new PlaywrightCrawler({
-        requestHandler: (ctx) => router({ ...ctx, industry, companySize }),
-        maxRequestsPerCrawl: maxRequests,
-        maxConcurrency: CRAWLER_DEFAULTS.maxConcurrency,
-        requestHandlerTimeoutSecs: CRAWLER_DEFAULTS.requestTimeoutSeconds,
-        proxyConfiguration,
-        launchContext: {
-            useChrome: true,
-            launchOptions: {
-                headless: true,
-                args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-            },
-        },
-        browserPoolOptions: {
-            useFingerprints: true,
-        },
-        failedRequestHandler: async ({ request, log }, error) => {
-            log.error(`Request ${request.url} failed: ${error.message}`);
-        },
+    let leads = [];
+
+    if (enabledSources.includes(SOURCES.GOOGLE_MAPS) && searchQueries.length) {
+        log.info('Running Google Maps source...');
+        const mapsLeads = await runGoogleMapsSource({
+            queries: searchQueries,
+            location,
+            maxResultsPerQuery: maxResultsPerSource,
+            proxyConfiguration,
+            countryCode,
+            log,
+        }).catch((err) => {
+            log.error(`Google Maps source failed: ${err.message}`);
+            return [];
+        });
+        log.info(`Google Maps: ${mapsLeads.length} leads.`);
+        leads.push(...mapsLeads);
+    }
+
+    if (enabledSources.includes(SOURCES.LINKEDIN)) {
+        log.info('Running LinkedIn source...');
+        const linkedinLeads = await runLinkedInSource({
+            personaTitles,
+            keywords,
+            location,
+            maxResults: maxResultsPerSource,
+            proxyConfiguration,
+            fetchPublicProfiles: fetchLinkedInPublicProfiles,
+            log,
+        }).catch((err) => {
+            log.error(`LinkedIn source failed: ${err.message}`);
+            return [];
+        });
+        log.info(`LinkedIn: ${linkedinLeads.length} leads.`);
+        leads.push(...linkedinLeads);
+    }
+
+    if (enabledSources.includes(SOURCES.DIRECTORY)) {
+        log.info('Running directory source...');
+        const directoryLeads = await runDirectorySource({
+            directoryUrls: input.directoryUrls,
+            keywords,
+            location,
+            maxResults: maxResultsPerSource,
+            proxyConfiguration,
+            log,
+        }).catch((err) => {
+            log.error(`Directory source failed: ${err.message}`);
+            return [];
+        });
+        log.info(`Directory: ${directoryLeads.length} leads.`);
+        leads.push(...directoryLeads);
+    }
+
+    if (enabledSources.includes(SOURCES.WEB_SEARCH)) {
+        log.info('Running web search source...');
+        const webSearchLeads = await runWebSearchSource({
+            keywords,
+            location,
+            maxResults: maxResultsPerSource,
+            proxyConfiguration,
+            log,
+        }).catch((err) => {
+            log.error(`Web search source failed: ${err.message}`);
+            return [];
+        });
+        log.info(`Web search: ${webSearchLeads.length} leads.`);
+        leads.push(...webSearchLeads);
+    }
+
+    log.info(`Total raw leads collected: ${leads.length}`);
+    leads = dedupeAndMergeLeads(leads);
+    log.info(`After cross-source dedupe/merge: ${leads.length} leads.`);
+
+    if (doEnrichWebsites) {
+        log.info('Enriching leads with contact data from their websites...');
+        leads = await enrichWebsites(leads, { proxyConfiguration, log });
+    }
+
+    log.info('Scoring leads against the ICP...');
+    await mapWithConcurrency(leads, 5, async (lead) => {
+        const result = await scoreLead(lead, icpDescription);
+        lead.icpScore = result.score;
+        lead.matchedPersona = result.matchedPersona;
+        lead.icpReasoning = result.reasoning;
+        lead.suggestedApproach = result.suggestedApproach;
     });
 
-    const startUrls = input.startUrls.map((item) => (typeof item === 'string' ? { url: item } : item));
-    await crawler.run(startUrls);
+    const qualifiedLeads = leads.filter((l) => (l.icpScore ?? 0) >= minScoreThreshold);
+    log.info(`${qualifiedLeads.length}/${leads.length} leads meet the minimum score threshold (${minScoreThreshold}).`);
 
-    // Enrichment
-    if (enableEnrichment) {
-        await enrichHighScoringLeads(minScoreThreshold);
+    for (const lead of qualifiedLeads) {
+        await Actor.pushData(lead);
     }
-
-    // Generate outputs
-    const dataset = await Actor.openDataset();
-    const { items: rawItems } = await dataset.getData();
-
-    // Deduplicate by URL, keeping the most recent / enriched record
-    const itemsMap = new Map();
-    for (const item of rawItems) {
-        itemsMap.set(item.url, item);
-    }
-    const items = Array.from(itemsMap.values());
 
     if (outputFormat === 'csv' || outputFormat === 'both') {
-        const csv = generateCsv(items);
-        const key = 'leads.csv';
-        await Actor.setValue(key, csv, { contentType: 'text/csv' });
-        log.info(`CSV saved to key-value store as ${key}`);
+        const csv = generateCsv(qualifiedLeads);
+        await Actor.setValue('leads.csv', csv, { contentType: 'text/csv' });
+        log.info('CSV saved to key-value store as leads.csv');
     }
-
     if (outputFormat === 'json' || outputFormat === 'both') {
-        const json = JSON.stringify(items, null, 2);
-        await Actor.setValue('leads.json', json, { contentType: 'application/json' });
+        await Actor.setValue('leads.json', JSON.stringify(qualifiedLeads, null, 2), { contentType: 'application/json' });
     }
 
-    // Summary
-    const total = items.length;
-    const hot = items.filter((i) => i.outsourcingScore >= 80).length;
-    const warm = items.filter((i) => i.outsourcingScore >= 60 && i.outsourcingScore < 80).length;
-    const cold = items.filter((i) => i.outsourcingScore < 60).length;
-    const enriched = items.filter((i) => i.enrichmentStatus === 'enriched').length;
+    const hot = qualifiedLeads.filter((l) => l.icpScore >= 80).length;
+    const warm = qualifiedLeads.filter((l) => l.icpScore >= 60 && l.icpScore < 80).length;
+    const cold = qualifiedLeads.filter((l) => l.icpScore < 60).length;
 
-    log.info('=== UK SME Tech Auditor Summary ===');
-    log.info(`Total audited: ${total}`);
-    log.info(`Hot leads (>=80): ${hot}`);
-    log.info(`Warm leads (60-79): ${warm}`);
-    log.info(`Cold/Ignore (<60): ${cold}`);
-    log.info(`Enriched leads: ${enriched}`);
+    log.info('=== Universal Lead Generator Summary ===');
+    log.info(`Total leads scraped: ${leads.length}`);
+    log.info(`Qualified leads (>= threshold): ${qualifiedLeads.length}`);
+    log.info(`Hot (>=80): ${hot} | Warm (60-79): ${warm} | Cold (<60): ${cold}`);
 
     await Actor.exit();
 }
