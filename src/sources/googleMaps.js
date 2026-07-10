@@ -10,6 +10,7 @@
 
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { Actor } from 'apify';
 import { newLeadId, formatDate, extractDomain, sleep } from '../utils.js';
 import { ACTOR_VERSION } from '../constants.js';
 
@@ -17,6 +18,20 @@ chromium.use(StealthPlugin());
 
 const FEED_SELECTOR = 'div[role="feed"]';
 const MAX_SCROLL_ROUNDS = 40;
+
+/** Best-effort screenshot + HTML dump on failure, to diagnose blind cloud runs. */
+async function captureDebugArtifacts(page, query) {
+    if (!page || page.isClosed()) return;
+    const slug = query.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const screenshot = await page.screenshot().catch(() => null);
+    if (screenshot) {
+        await Actor.setValue(`DEBUG-screenshot-${slug}`, screenshot, { contentType: 'image/png' });
+    }
+    const html = await page.content().catch(() => null);
+    if (html) {
+        await Actor.setValue(`DEBUG-html-${slug}`, html, { contentType: 'text/html' });
+    }
+}
 const MAX_STAGNANT_ROUNDS = 4;
 
 async function autoScrollFeed(page, maxResults) {
@@ -200,6 +215,7 @@ export async function runGoogleMapsSource({ queries, location, maxResultsPerQuer
                 }
             } catch (err) {
                 actorLog.error(`Google Maps: query "${query}" failed: ${err.message}`);
+                await captureDebugArtifacts(page, query).catch(() => {});
             } finally {
                 await context.close().catch(() => {});
             }
