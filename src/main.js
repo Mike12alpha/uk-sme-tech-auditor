@@ -4,7 +4,7 @@
  * Orchestrates independent lead sources (Google Maps, LinkedIn, business
  * directories, generic web search), merges/dedupes what they find, enriches
  * companies with contact data from their own websites, scores every lead
- * against the caller's free-text ICP with Claude, and exports the result.
+ * against the caller's free-text ICP with Groq, and exports the result.
  */
 
 import { Actor, log } from 'apify';
@@ -75,7 +75,6 @@ async function run() {
             queries: searchQueries,
             location,
             maxResultsPerQuery: maxResultsPerSource,
-            proxyConfiguration,
             countryCode,
             log,
         }).catch((err) => {

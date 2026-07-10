@@ -10,7 +10,7 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 
 1. **You describe your ICP** in plain text — industry, persona/job titles, company size, region, pain points, whatever matters to you.
 2. **Four sources run independently** (toggle any of them off):
-   - **Google Maps** — local/regional businesses matching your search queries (name, address, phone, website, rating, category).
+   - **Google Maps** — local/regional businesses matching your search queries (name, address, phone, website, rating, category). Delegates to the specialist `compass/crawler-google-places` Actor rather than scraping Google directly — see [Limitations](#limitations) for why.
    - **LinkedIn** — decision-makers matching your persona job titles, discovered via public search-engine indexing (no login/cookies required, so no LinkedIn account is put at risk — see [Limitations](#limitations)).
    - **Business directories** — Yell and similar listing sites, or your own directory URLs; extracts outbound company links.
    - **General web search** — finds company websites directly by keyword + location, for industries with no strong directory/Maps presence.
@@ -84,15 +84,18 @@ CSV output flattens `socialLinks` into `facebook` / `twitter` / `instagram` colu
 Get one at [console.groq.com/keys](https://console.groq.com/keys), paste it into `groqApiKey`. Without it, leads are still scored, just with a much cruder rule-based heuristic instead of an LLM.
 
 ### Proxy
-Uses Apify Proxy (RESIDENTIAL group) by default, falling back to standard datacenter proxy if your account doesn't have residential access. Google Maps and LinkedIn both actively push back on obvious datacenter traffic, so residential proxy is strongly recommended for real runs.
+Uses Apify Proxy (RESIDENTIAL group) by default, falling back to standard datacenter proxy if your account doesn't have residential access, for the LinkedIn/directory/web-search sources and website enrichment (all plain HTTP via Cheerio).
 
-Confirmed in testing: DuckDuckGo's HTML endpoint (used for the LinkedIn and web-search sources) will rate-limit/block a single fixed IP after a handful of requests in quick succession, independent of any proxy setting on Google's or LinkedIn's own sites. The LinkedIn/web-search sources already throttle their own requests and run at `maxConcurrency: 1` to stay under that, but if you run large `keywords`/`personaTitles` lists back-to-back across multiple actor runs from the same IP, expect these two sources to start failing gracefully (0 leads, no crash) until the block cools down. Apify's residential proxy rotates IPs per request and avoids this in practice.
+Confirmed in testing: DuckDuckGo's HTML endpoint (used for the LinkedIn and web-search sources) resets the TLS connection consistently — across multiple retries with different rotated proxy sessions — suggesting DuckDuckGo blocks Apify's residential proxy IP range at the network level, not simple rate-limiting. These two sources already throttle their own requests and run at `maxConcurrency: 1`, but expect them to fail gracefully (0 leads, no crash) rather than reliably return results until/unless that changes.
+
+### Google Maps costs money beyond your own Actor's usage
+The Google Maps source calls `compass/crawler-google-places` on your behalf (via `Actor.call()`), which bills separately at roughly **$0.003–0.004 per place scraped** (Apify Store pricing, varies by your account tier) on top of whatever your own Actor run costs. `maxResultsPerSource` bounds how many places it asks for per query.
 
 ---
 
 ## Limitations
 
-- **Google Maps** DOM markup is obfuscated and changes over time. This actor targets the more stable `data-item-id`/`role` accessibility attributes rather than CSS classes, but expect occasional breakage when Google ships a redesign.
+- **Google Maps**: this actor does not scrape Google Maps directly. Confirmed in production testing: a raw Playwright scraper going through Apify's residential proxy had every navigation to `google.com/maps` silently tarpitted — a consistent ~45s hang on every single run, with the page becoming unresponsive even to a screenshot attempt, regardless of country targeting. That's consistent with Google's anti-bot system detecting and stalling known proxy-network traffic rather than returning a clean block signal. Rather than fight that, this source delegates to `compass/crawler-google-places`, an established, high-volume Actor that already solves this problem (see the cost note above).
 - **LinkedIn**: this actor does **not** log into LinkedIn or use session cookies — that requires handing over a real account, which risks that account being banned and carries real ToS/legal exposure (see *hiQ Labs v. LinkedIn* and LinkedIn's active anti-scraping enforcement). Instead it discovers public profiles indexed by search engines (DuckDuckGo) and parses name/title/company straight out of the search snippet — that snippet data is the main payload. The optional public-profile-page fetch (`fetchLinkedInPublicProfiles`) is a bonus-only layer: in testing, LinkedIn returns an immediate bot-block response (HTTP 999) to anonymous, cookie-less requests essentially every time, proxy or not, so treat any extra fields it adds as a bonus, not something to rely on. This is a deliberate trade-off — real coverage in exchange for zero risk to a LinkedIn account.
 - **Email guesses** are pattern-based heuristics confirmed only by a DNS MX lookup (does the domain receive mail at all) — not a real SMTP/deliverability check. Treat `emailStatus: "guessed"` accordingly.
 - **Directories/web search** rely on plain HTTP + HTML parsing (no JS execution). Confirmed in testing: **Yell.com sits behind Cloudflare and returns HTTP 403 to plain requests** — the built-in auto-generated Yell query (used only when you don't supply `directoryUrls`) will typically yield zero results out of the box for that reason, not a bug in the parsing logic. For real directory coverage, supply `directoryUrls` pointing at directories that don't challenge plain HTTP clients (many smaller/regional directories don't), or lean on the Google Maps / LinkedIn / web-search sources instead, which don't have this problem.
@@ -114,7 +117,7 @@ apify run -p --input=input.json
 
 | Issue | Cause | Solution |
 |---|---|---|
-| `Google Maps: 0 places found` | Google served a different DOM layout, or a CAPTCHA/consent page | Try a narrower query, add `location`, or check proxy is set to `RESIDENTIAL`. |
+| `Google Maps: 0 places found` | `compass/crawler-google-places` call failed or returned nothing for the query | Check the run log for the sub-Actor's own error; try a narrower/more specific `searchQueries` term. |
 | `LinkedIn: 0 leads` | DuckDuckGo returned no indexed results for the query | Broaden `personaTitles`/`keywords`, or DuckDuckGo itself blocked the request — retry later. |
 | Lots of `emailStatus: null` | No email found on-site or via contact page, and no MX-verified guess possible | Expected for sites with no visible email; lower your expectations for those leads rather than treating it as a bug. |
 | `AI scoring failed` in `icpReasoning` | Groq API error (bad key, rate limit, network) | Check `groqApiKey`; the actor still runs using the rule-based fallback. |

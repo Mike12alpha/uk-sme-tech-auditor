@@ -1,6 +1,7 @@
 # Apify Actor Dockerfile for Universal Lead Generator
-# Uses official Playwright + Chrome base image (needed for the Google Maps source)
-FROM apify/actor-node-playwright-chrome:20
+# All sources are plain HTTP (Cheerio) or delegate to other Apify Actors
+# (Google Maps) - no local browser needed, so a plain Node image is enough.
+FROM apify/actor-node:20
 
 WORKDIR /usr/src/app
 

@@ -17,7 +17,6 @@
     "b2b",
     "sales-prospecting",
     "web-scraping",
-    "playwright",
     "groq"
   ],
   "author": "",
@@ -28,9 +27,6 @@
     "crawlee": "^3.11.0",
     "csv-stringify": "^6.5.0",
     "groq-sdk": "^0.9.1",
-    "playwright": "^1.45.0",
-    "playwright-extra": "^4.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "tldts": "^6.1.0",
     "user-agents": "^1.1.0"
   },
