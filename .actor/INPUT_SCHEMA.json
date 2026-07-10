@@ -12,9 +12,9 @@
       "prefill": "UK-based independent dental clinics with 5-30 staff. Best contacts are the Practice Manager or Owner. Looking for practices without an online booking system."
     },
     "searchQueries": {
-      "title": "Google Maps search queries",
+      "title": "Local business search terms",
       "type": "array",
-      "description": "What to search for on Google Maps, e.g. [\"dental clinics\", \"dentists\"]. Leave empty to skip Google Maps.",
+      "description": "Business types to look up in the local business source (OpenStreetMap), e.g. [\"dental clinics\", \"dentists\"]. A `location` is required for this source. Leave empty to skip it.",
       "editor": "stringList",
       "prefill": ["dental clinics"]
     },
@@ -53,14 +53,14 @@
     "sources": {
       "title": "Lead sources to run",
       "type": "array",
-      "description": "Which sources to run. Defaults to all four.",
+      "description": "Which sources to run. Defaults to all four. (The legacy id \"googleMaps\" is still accepted and maps to \"localBusiness\".)",
       "editor": "select",
       "items": {
         "type": "string",
-        "enum": ["googleMaps", "linkedin", "directory", "webSearch"],
-        "enumTitles": ["Google Maps", "LinkedIn", "Business directories", "General web search"]
+        "enum": ["localBusiness", "linkedin", "directory", "webSearch"],
+        "enumTitles": ["Local business (OpenStreetMap)", "LinkedIn", "Business directories", "General web search"]
       },
-      "default": ["googleMaps", "linkedin", "directory", "webSearch"]
+      "default": ["localBusiness", "linkedin", "directory", "webSearch"]
     },
     "maxResultsPerSource": {
       "title": "Max results per source",

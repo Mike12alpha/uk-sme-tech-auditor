@@ -8,7 +8,7 @@
  */
 
 import { Actor, log } from 'apify';
-import { runGoogleMapsSource } from './sources/googleMaps.js';
+import { runLocalBusinessSource } from './sources/localBusiness.js';
 import { runLinkedInSource } from './sources/linkedin.js';
 import { runDirectorySource } from './sources/directory.js';
 import { runWebSearchSource } from './sources/webSearch.js';
@@ -16,7 +16,7 @@ import { enrichWebsites } from './sources/website.js';
 import { initScorer, scoreLead } from './scorer.js';
 import { dedupeAndMergeLeads } from './dedupe.js';
 import { generateCsv, mapWithConcurrency } from './utils.js';
-import { CRAWLER_DEFAULTS, SOURCES } from './constants.js';
+import { CRAWLER_DEFAULTS, SOURCES, SOURCE_ALIASES } from './constants.js';
 
 // Each source manages its own browser/HTTP client outside Crawlee's direct
 // control; a stray async operation from an abandoned request can reject
@@ -35,7 +35,10 @@ async function run() {
         throw new Error('icpDescription is required — describe your ideal customer profile (industry, persona, company size, region, etc).');
     }
 
-    const enabledSources = input.sources?.length ? input.sources : Object.values(SOURCES);
+    // Normalize any legacy source ids (e.g. "googleMaps" → "localBusiness")
+    // so older saved inputs keep working after the rename.
+    const enabledSources = (input.sources?.length ? input.sources : Object.values(SOURCES))
+        .map((s) => SOURCE_ALIASES[s] || s);
     const searchQueries = input.searchQueries || [];
     const keywords = input.keywords?.length ? input.keywords : searchQueries;
     const personaTitles = input.personaTitles?.length ? input.personaTitles : undefined;
@@ -47,8 +50,8 @@ async function run() {
     const doEnrichWebsites = input.enrichWebsites !== false;
     const fetchLinkedInPublicProfiles = input.fetchLinkedInPublicProfiles !== false;
 
-    if (enabledSources.includes(SOURCES.GOOGLE_MAPS) && !searchQueries.length) {
-        log.warning('Google Maps source is enabled but no searchQueries were provided — skipping Google Maps.');
+    if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && !searchQueries.length) {
+        log.warning('Local business source is enabled but no searchQueries were provided — skipping it.');
     }
 
     initScorer({ apiKey: input.groqApiKey, model: input.groqModel });
@@ -69,20 +72,20 @@ async function run() {
 
     let leads = [];
 
-    if (enabledSources.includes(SOURCES.GOOGLE_MAPS) && searchQueries.length) {
-        log.info('Running Google Maps source...');
-        const mapsLeads = await runGoogleMapsSource({
+    if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && searchQueries.length) {
+        log.info('Running local business (OpenStreetMap) source...');
+        const localLeads = await runLocalBusinessSource({
             queries: searchQueries,
             location,
             maxResultsPerQuery: maxResultsPerSource,
             countryCode,
             log,
         }).catch((err) => {
-            log.error(`Google Maps source failed: ${err.message}`);
+            log.error(`Local business source failed: ${err.message}`);
             return [];
         });
-        log.info(`Google Maps: ${mapsLeads.length} leads.`);
-        leads.push(...mapsLeads);
+        log.info(`Local business: ${localLeads.length} leads.`);
+        leads.push(...localLeads);
     }
 
     if (enabledSources.includes(SOURCES.LINKEDIN)) {
