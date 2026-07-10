@@ -98,11 +98,24 @@ export async function runGoogleMapsSource({ queries, location, maxResultsPerQuer
     const leads = [];
     const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
 
-    const browser = await chromium.launch({
+    // Playwright's own bundled-Chromium cache can drift out of sync with what
+    // the Apify base image pre-installs (a Playwright version bump pulling in
+    // a browser build ID the image was never built with), which fails with
+    // "Executable doesn't exist at /pw-browsers/...". Launch the platform's
+    // own system Chrome instead — the Apify base image always provides one at
+    // APIFY_CHROME_EXECUTABLE_PATH — falling back to Playwright's "chrome"
+    // channel (its own system-Chrome auto-detection) for local development.
+    const launchOptions = {
         headless: true,
         proxy: proxyUrl ? { server: proxyUrl } : undefined,
         args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
+    };
+    if (process.env.APIFY_CHROME_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.APIFY_CHROME_EXECUTABLE_PATH;
+    } else {
+        launchOptions.channel = 'chrome';
+    }
+    const browser = await chromium.launch(launchOptions);
 
     try {
         for (const query of queries) {
