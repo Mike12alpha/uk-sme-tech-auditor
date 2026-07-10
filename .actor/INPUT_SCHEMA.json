@@ -48,7 +48,7 @@
       "title": "Directory URLs (optional)",
       "type": "array",
       "description": "Specific business-directory search/listing URLs to crawl (Yell, Thomson Local, etc). If empty and the directory source is enabled, a Yell search is built automatically from keywords + location.",
-      "editor": "requestListSources"
+      "editor": "stringList"
     },
     "sources": {
       "title": "Lead sources to run",
