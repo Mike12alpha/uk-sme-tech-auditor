@@ -183,8 +183,28 @@ async function run() {
     await Actor.exit();
 }
 
+// Seen in production: `Actor.init()`/`Actor.getInput()` can throw this exact
+// TypeError deep inside the `apify` SDK's own platform self-check, before our
+// code ever runs — reproduced consistently under the platform's default
+// "LIMITED_PERMISSIONS" run mode. It is not something our code triggers or
+// can catch/retry around (the SDK marks itself initialized before the step
+// that fails, so retrying in-process is a no-op). If you see this, try
+// switching the Actor's permission level to Full permissions in Console
+// (Settings tab) — that's the only known workaround so far.
+const KNOWN_SDK_INIT_BUG_SIGNATURE = "Cannot read properties of undefined (reading 'warning')";
+
 run().catch(async (err) => {
     console.error(err);
+    if (err.message === KNOWN_SDK_INIT_BUG_SIGNATURE) {
+        console.error([
+            '',
+            'This matches a known apify-SDK-internal failure during Actor.init()/getInput(),',
+            'observed under the platform\'s default "LIMITED_PERMISSIONS" run mode.',
+            'It originates inside the apify npm package itself, not this actor\'s code.',
+            'Workaround: Console -> this Actor -> Settings -> Actor permissions -> Full permissions.',
+            '',
+        ].join('\n'));
+    }
     try {
         await Actor.fail(err.message);
     } catch {
