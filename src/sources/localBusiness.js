@@ -17,10 +17,20 @@ import { newLeadId, formatDate, extractDomain, normalizeUrl, sleep } from '../ut
 import { ACTOR_VERSION, KEYWORD_OSM_TAGS, OSM_BUSINESS_TAG_FAMILIES } from '../constants.js';
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+// Multiple Overpass mirrors. The main overpass-api.de instance is heavily
+// loaded and frequently returns 504/429; the others are alternates. We try
+// each mirror once with a short per-request timeout and move straight on to
+// the next if it errors or is slow — cycling mirrors IS the retry strategy,
+// which avoids hammering (and waiting on) one overloaded server.
 const OVERPASS_URLS = [
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    'https://overpass.openstreetmap.ru/api/interpreter',
 ];
+// Healthy mirrors answer these small city+tag queries in a few seconds; if a
+// mirror hasn't responded in this long it's overloaded — abandon it and move on.
+const OVERPASS_REQUEST_TIMEOUT_MS = 25000;
 // Nominatim/Overpass usage policy: identify the client and go easy on volume.
 const USER_AGENT = 'universal-lead-generator/2.0 (Apify Actor; B2B lead generation)';
 
@@ -69,22 +79,33 @@ function buildOverpassQuery(keyword, bbox, limit) {
     return `[out:json][timeout:60];\n(\n${selectors}\n);\nout center tags ${limit};`;
 }
 
+async function fetchOverpassOnce(endpoint, query) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), OVERPASS_REQUEST_TIMEOUT_MS);
+    try {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT },
+            body: `data=${encodeURIComponent(query)}`,
+            signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        return data.elements || [];
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function runOverpass(query, log) {
-    for (const endpoint of OVERPASS_URLS) {
+    for (let i = 0; i < OVERPASS_URLS.length; i++) {
+        const endpoint = OVERPASS_URLS[i];
+        const isLast = i === OVERPASS_URLS.length - 1;
         try {
-            const res = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT },
-                body: `data=${encodeURIComponent(query)}`,
-            });
-            if (!res.ok) {
-                log.warning(`Overpass ${endpoint} returned HTTP ${res.status}; trying next endpoint.`);
-                continue;
-            }
-            const data = await res.json();
-            return data.elements || [];
+            return await fetchOverpassOnce(endpoint, query);
         } catch (err) {
-            log.warning(`Overpass ${endpoint} failed (${err.message}); trying next endpoint.`);
+            const reason = err.name === 'AbortError' ? `no response in ${OVERPASS_REQUEST_TIMEOUT_MS / 1000}s` : err.message;
+            log.warning(`Overpass ${endpoint} failed (${reason})${isLast ? '.' : '; trying next mirror.'}`);
         }
     }
     return null;
