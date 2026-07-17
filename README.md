@@ -9,8 +9,8 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 ## How it works
 
 1. **You describe your ICP** in plain text — industry, persona/job titles, company size, region, pain points, whatever matters to you.
-2. **Four sources run independently** (toggle any of them off):
-   - **Local business (OpenStreetMap)** — local/regional businesses matching your search terms + location (name, address, phone, website, category), via our own crawler over the open OpenStreetMap data APIs. See [Limitations](#limitations) for why this is OpenStreetMap and not Google Maps.
+2. **Four sources run independently** (toggle any of them off). Each source has a built-in crawler that works on any plan; three of them can *optionally* use a paid external Apify Actor for richer data (see [Using external Apify Actors](#using-external-apify-actors-paid)):
+   - **Local business** — built-in: our own crawler over the open OpenStreetMap data APIs. Optional external: `compass/crawler-google-places` (real Google Maps data + ratings). See [Limitations](#limitations) for why the built-in default is OpenStreetMap, not Google Maps.
    - **LinkedIn** — decision-makers matching your persona job titles, discovered via public search-engine indexing (no login/cookies required, so no LinkedIn account is put at risk — see [Limitations](#limitations)).
    - **Business directories** — Yell and similar listing sites, or your own directory URLs; extracts outbound company links.
    - **General web search** — finds company websites directly by keyword + location, for industries with no strong directory/Maps presence.
@@ -37,6 +37,10 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 | `minScoreThreshold` | integer | no | `0` | Only export leads scoring at/above this. |
 | `enrichWebsites` | boolean | no | `true` | Visit each lead's website for contact data. |
 | `fetchLinkedInPublicProfiles` | boolean | no | `true` | Best-effort fetch of each LinkedIn profile's public page. |
+| `useApifyActors` | boolean | no | `false` | Try paid external Apify Actors (Maps/LinkedIn/directory) first, fall back to built-in crawlers. See [Using external Apify Actors](#using-external-apify-actors-paid). |
+| `mapsActorId` | string | no | `compass/crawler-google-places` | External Google Maps Actor (only used when `useApifyActors` is on). |
+| `linkedinActorId` | string | no | `harvestapi/linkedin-profile-search` | External LinkedIn Actor (only used when `useApifyActors` is on). |
+| `directoryActorId` | string | no | — | Optional external directory Actor (only used when `useApifyActors` is on). Empty = always use the built-in directory crawler. |
 | `groqApiKey` | string (secret) | no | — | Enables Groq-based LLM scoring. Without it, a rule-based fallback is used. |
 | `groqModel` | string | no | `llama-3.3-70b-versatile` | Groq model for scoring. |
 | `outputFormat` | string | no | `both` | `json`, `csv`, or `both`. |
@@ -86,6 +90,20 @@ Get one at [console.groq.com/keys](https://console.groq.com/keys), paste it into
 
 ### Local business source (OpenStreetMap)
 No setup, no API key, no proxy, no extra cost — it queries the open OpenStreetMap data APIs (Nominatim for geocoding, Overpass for the business lookup) over plain HTTP. Just supply `searchQueries` (business types) and a `location`. Works on any Apify plan.
+
+### Using external Apify Actors (paid)
+Set `useApifyActors: true` to pull richer data from proven specialist Actors instead of the built-in crawlers:
+- **Local business** → `mapsActorId` (default `compass/crawler-google-places`) — real Google Maps data incl. ratings/reviews.
+- **LinkedIn** → `linkedinActorId` (default `harvestapi/linkedin-profile-search`) — real LinkedIn profiles, no cookies needed.
+- **Directory** → `directoryActorId` (optional; empty = built-in crawler).
+
+**How the fallback works:** for each of those three sources, the actor tries the external Actor first; if it can't run (or returns nothing), it automatically falls back to the built-in crawler for that source. So enabling this never *breaks* a run — worst case you get the same built-in results.
+
+**Two hard requirements**, both confirmed the hard way in testing:
+1. **Your Apify plan must permit running public Actors.** Free/restricted plans return *"your plan does not support running public Actors"* — in that case every external call fails and the actor silently falls back to the built-in crawlers. Enabling the flag on such a plan gains you nothing.
+2. **External Actors bill you separately** (typically ~$0.003–0.01 per result) on top of this actor's own usage.
+
+The Google Maps mapping is written against `compass/crawler-google-places`'s documented output. The LinkedIn/directory mappings probe several common field names defensively, since those Actors' output shapes vary — if you point them at a non-default Actor and some fields come back empty, that mapping may need a tweak.
 
 ### Proxy
 Uses Apify Proxy (RESIDENTIAL group) by default, falling back to standard datacenter proxy if your account doesn't have residential access, for the LinkedIn/directory/web-search sources and website enrichment (all plain HTTP via Cheerio).

@@ -90,6 +90,33 @@
       "description": "Best-effort fetch of each discovered LinkedIn profile's public page for extra detail. Uses no cookies/login; some profiles may be behind a login wall and will keep only the search-snippet data.",
       "default": true
     },
+    "useApifyActors": {
+      "title": "Use external Apify Actors (paid) for richer data",
+      "type": "boolean",
+      "description": "When ON, the local-business, LinkedIn, and directory sources first try a proven external Apify Actor (Google Maps, LinkedIn, directory) and only fall back to the built-in crawlers if those can't run. ⚠️ Requires an Apify plan that permits running public Actors, and those Actors bill you separately (a few cents per result). On a plan that can't run public Actors, leave this OFF — the built-in crawlers are used instead.",
+      "default": false
+    },
+    "mapsActorId": {
+      "title": "Google Maps Actor id",
+      "type": "string",
+      "description": "External Apify Actor used for local businesses when 'Use external Apify Actors' is ON. Leave default unless you prefer another Google Maps Actor.",
+      "editor": "textfield",
+      "default": "compass/crawler-google-places"
+    },
+    "linkedinActorId": {
+      "title": "LinkedIn Actor id",
+      "type": "string",
+      "description": "External Apify Actor used for LinkedIn people search when 'Use external Apify Actors' is ON.",
+      "editor": "textfield",
+      "default": "harvestapi/linkedin-profile-search"
+    },
+    "directoryActorId": {
+      "title": "Directory Actor id (optional)",
+      "type": "string",
+      "description": "Optional external Apify Actor for business directories when 'Use external Apify Actors' is ON. Leave empty to always use the built-in directory crawler.",
+      "editor": "textfield",
+      "default": ""
+    },
     "groqApiKey": {
       "title": "Groq API key",
       "type": "string",

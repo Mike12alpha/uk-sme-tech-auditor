@@ -17,6 +17,12 @@ import { initScorer, scoreLead } from './scorer.js';
 import { dedupeAndMergeLeads } from './dedupe.js';
 import { generateCsv, mapWithConcurrency } from './utils.js';
 import { CRAWLER_DEFAULTS, SOURCES, SOURCE_ALIASES } from './constants.js';
+import {
+    callApifyActor,
+    buildMapsActorInput, mapMapsPlace,
+    buildLinkedInActorInput, mapLinkedInProfile,
+    buildDirectoryActorInput, mapDirectoryItem,
+} from './apifyActors.js';
 
 // Each source manages its own browser/HTTP client outside Crawlee's direct
 // control; a stray async operation from an abandoned request can reject
@@ -50,6 +56,17 @@ async function run() {
     const doEnrichWebsites = input.enrichWebsites !== false;
     const fetchLinkedInPublicProfiles = input.fetchLinkedInPublicProfiles !== false;
 
+    // External Apify Actors (paid, require a plan that can run public Actors).
+    // When enabled and an id is set for a source, we try that Actor first and
+    // fall back to our own crawler if it can't run or returns nothing.
+    const useApifyActors = input.useApifyActors === true;
+    const mapsActorId = useApifyActors ? (input.mapsActorId || 'compass/crawler-google-places') : '';
+    const linkedinActorId = useApifyActors ? (input.linkedinActorId || 'harvestapi/linkedin-profile-search') : '';
+    const directoryActorId = useApifyActors ? (input.directoryActorId || '') : '';
+    if (useApifyActors) {
+        log.info('External Apify Actors are ENABLED — will try them first, falling back to built-in crawlers on failure. (Requires a plan that can run public Actors; these Actors are billed per result.)');
+    }
+
     if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && !searchQueries.length) {
         log.warning('Local business source is enabled but no searchQueries were provided — skipping it.');
     }
@@ -73,52 +90,103 @@ async function run() {
     let leads = [];
 
     if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && searchQueries.length) {
-        log.info('Running local business (OpenStreetMap) source...');
-        const localLeads = await runLocalBusinessSource({
-            queries: searchQueries,
-            location,
-            maxResultsPerQuery: maxResultsPerSource,
-            countryCode,
-            log,
-        }).catch((err) => {
-            log.error(`Local business source failed: ${err.message}`);
-            return [];
-        });
+        let localLeads = [];
+
+        if (mapsActorId) {
+            log.info(`Local business: trying external Actor ${mapsActorId}...`);
+            const items = await callApifyActor(
+                mapsActorId,
+                buildMapsActorInput({ queries: searchQueries, location, maxResultsPerQuery: maxResultsPerSource, countryCode }),
+                log,
+            );
+            if (items?.length) {
+                localLeads = items.map((place) => mapMapsPlace(place, { location, countryCode }));
+                log.info(`Local business: external Actor returned ${localLeads.length} leads.`);
+            }
+        }
+
+        if (!localLeads.length) {
+            log.info('Running local business (OpenStreetMap) source...');
+            localLeads = await runLocalBusinessSource({
+                queries: searchQueries,
+                location,
+                maxResultsPerQuery: maxResultsPerSource,
+                countryCode,
+                log,
+            }).catch((err) => {
+                log.error(`Local business source failed: ${err.message}`);
+                return [];
+            });
+        }
         log.info(`Local business: ${localLeads.length} leads.`);
         leads.push(...localLeads);
     }
 
     if (enabledSources.includes(SOURCES.LINKEDIN)) {
-        log.info('Running LinkedIn source...');
-        const linkedinLeads = await runLinkedInSource({
-            personaTitles,
-            keywords,
-            location,
-            maxResults: maxResultsPerSource,
-            proxyConfiguration,
-            fetchPublicProfiles: fetchLinkedInPublicProfiles,
-            log,
-        }).catch((err) => {
-            log.error(`LinkedIn source failed: ${err.message}`);
-            return [];
-        });
+        let linkedinLeads = [];
+
+        if (linkedinActorId) {
+            log.info(`LinkedIn: trying external Actor ${linkedinActorId}...`);
+            const items = await callApifyActor(
+                linkedinActorId,
+                buildLinkedInActorInput({ keywords, personaTitles, location, maxResults: maxResultsPerSource }),
+                log,
+            );
+            if (items?.length) {
+                linkedinLeads = items.map((item) => mapLinkedInProfile(item, { location }));
+                log.info(`LinkedIn: external Actor returned ${linkedinLeads.length} leads.`);
+            }
+        }
+
+        if (!linkedinLeads.length) {
+            log.info('Running LinkedIn source (built-in)...');
+            linkedinLeads = await runLinkedInSource({
+                personaTitles,
+                keywords,
+                location,
+                maxResults: maxResultsPerSource,
+                proxyConfiguration,
+                fetchPublicProfiles: fetchLinkedInPublicProfiles,
+                log,
+            }).catch((err) => {
+                log.error(`LinkedIn source failed: ${err.message}`);
+                return [];
+            });
+        }
         log.info(`LinkedIn: ${linkedinLeads.length} leads.`);
         leads.push(...linkedinLeads);
     }
 
     if (enabledSources.includes(SOURCES.DIRECTORY)) {
-        log.info('Running directory source...');
-        const directoryLeads = await runDirectorySource({
-            directoryUrls: input.directoryUrls,
-            keywords,
-            location,
-            maxResults: maxResultsPerSource,
-            proxyConfiguration,
-            log,
-        }).catch((err) => {
-            log.error(`Directory source failed: ${err.message}`);
-            return [];
-        });
+        let directoryLeads = [];
+
+        if (directoryActorId) {
+            log.info(`Directory: trying external Actor ${directoryActorId}...`);
+            const items = await callApifyActor(
+                directoryActorId,
+                buildDirectoryActorInput({ directoryUrls: input.directoryUrls, keywords, location, maxResults: maxResultsPerSource }),
+                log,
+            );
+            if (items?.length) {
+                directoryLeads = items.map((item) => mapDirectoryItem(item, { location, countryCode }));
+                log.info(`Directory: external Actor returned ${directoryLeads.length} leads.`);
+            }
+        }
+
+        if (!directoryLeads.length) {
+            log.info('Running directory source (built-in)...');
+            directoryLeads = await runDirectorySource({
+                directoryUrls: input.directoryUrls,
+                keywords,
+                location,
+                maxResults: maxResultsPerSource,
+                proxyConfiguration,
+                log,
+            }).catch((err) => {
+                log.error(`Directory source failed: ${err.message}`);
+                return [];
+            });
+        }
         log.info(`Directory: ${directoryLeads.length} leads.`);
         leads.push(...directoryLeads);
     }
