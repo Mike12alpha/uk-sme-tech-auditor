@@ -208,3 +208,13 @@ Respond with ONLY a JSON object, no other text:
   "reasoning": "one or two sentence explanation",
   "suggestedApproach": "one short, concrete outreach suggestion"
 }`;
+
+export const ICP_PARSER_SYSTEM_PROMPT = `You turn a free-text Ideal Customer Profile (ICP) into structured search parameters for a lead-generation tool. From the ICP, extract:
+
+- "searchQueries": 1-4 concrete business-type search terms someone would type into a business directory or map, e.g. ["dental clinics","dental practices"] or ["car dealerships"]. Use the business/industry, not the persona. If the ICP describes people rather than a business type, infer the most likely business type they work at.
+- "location": the target area as "City, Country" or "Region, Country" (e.g. "London, UK"). Null if the ICP names no location.
+- "countryCode": the 2-letter ISO country code for that location (e.g. "GB", "US"). Null if unknown.
+- "personaTitles": 1-4 job titles of the ideal contact person, e.g. ["Practice Manager","Owner"]. Empty array if none implied.
+
+Do not invent a location that isn't in the ICP. Respond with ONLY a JSON object, no other text:
+{"searchQueries":["..."],"location":"City, Country" or null,"countryCode":"GB" or null,"personaTitles":["..."]}`;

@@ -5,44 +5,41 @@
   "schemaVersion": 1,
   "properties": {
     "icpDescription": {
-      "title": "Ideal Customer Profile (ICP)",
+      "title": "Ideal Customer Profile (ICP) — describe who you want in plain English",
       "type": "string",
-      "description": "Free text describing who you're targeting: industry, persona/job titles, company size, region, pain points, etc. Used by Claude to score every lead's fit.",
+      "description": "The only field you really need. Describe who you're targeting: industry/business type, persona/job titles, region, company size, pain points, etc. If you leave the fields below empty, the actor uses AI (Groq) to derive the search terms, location, and persona titles straight from this text — and it scores every lead's fit against it. (AI derivation needs a Groq key; see the Groq fields lower down.)",
       "editor": "textarea",
-      "prefill": "UK-based independent dental clinics with 5-30 staff. Best contacts are the Practice Manager or Owner. Looking for practices without an online booking system."
+      "prefill": "UK-based independent dental clinics in London with 5-30 staff. Best contacts are the Practice Manager or Owner. Looking for practices without an online booking system."
     },
     "searchQueries": {
-      "title": "Local business search terms",
+      "title": "Local business search terms (optional — auto-derived from ICP)",
       "type": "array",
-      "description": "Business types to look up in the local business source (OpenStreetMap), e.g. [\"dental clinics\", \"dentists\"]. A `location` is required for this source. Leave empty to skip it.",
-      "editor": "stringList",
-      "prefill": ["dental clinics"]
+      "description": "Business types to look up in the local business source (OpenStreetMap), e.g. [\"dental clinics\", \"dentists\"]. Leave empty to auto-derive these from your ICP (requires a Groq key). A `location` is also needed for this source.",
+      "editor": "stringList"
     },
     "keywords": {
       "title": "Keywords (LinkedIn / directory / web search)",
       "type": "array",
-      "description": "Industry/company keywords used to build LinkedIn, directory, and web-search queries. Defaults to searchQueries if left empty.",
+      "description": "Industry/company keywords used to build LinkedIn, directory, and web-search queries. Defaults to searchQueries (or the ICP-derived terms) if left empty.",
       "editor": "stringList"
     },
     "personaTitles": {
-      "title": "Persona job titles (LinkedIn)",
+      "title": "Persona job titles (optional — auto-derived from ICP)",
       "type": "array",
-      "description": "Job titles to search for on LinkedIn, e.g. [\"Practice Manager\", \"Owner\"]. Defaults to a generic owner/founder/director list.",
+      "description": "Job titles of your ideal contact, e.g. [\"Practice Manager\", \"Owner\"]. Leave empty to auto-derive from your ICP (requires a Groq key), else a generic owner/founder/director list is used.",
       "editor": "stringList"
     },
     "location": {
-      "title": "Location",
+      "title": "Location (optional — auto-derived from ICP)",
       "type": "string",
-      "description": "City, region, or country to target, e.g. \"London, UK\". Used across all sources.",
-      "editor": "textfield",
-      "prefill": "London, UK"
+      "description": "City, region, or country to target, e.g. \"London, UK\". Used across all sources and required by the local business source. Leave empty to auto-derive from your ICP (requires a Groq key).",
+      "editor": "textfield"
     },
     "countryCode": {
-      "title": "Proxy country code",
+      "title": "Country code (optional — auto-derived from ICP)",
       "type": "string",
-      "description": "2-letter country code for residential proxy routing, e.g. GB, US. Leave empty for no country restriction.",
-      "editor": "textfield",
-      "prefill": "GB"
+      "description": "2-letter country code, e.g. GB, US, used for proxy routing. Leave empty to auto-derive from your ICP/location (requires a Groq key).",
+      "editor": "textfield"
     },
     "directoryUrls": {
       "title": "Directory URLs (optional)",

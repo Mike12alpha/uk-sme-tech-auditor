@@ -13,7 +13,7 @@ import { runLinkedInSource } from './sources/linkedin.js';
 import { runDirectorySource } from './sources/directory.js';
 import { runWebSearchSource } from './sources/webSearch.js';
 import { enrichWebsites } from './sources/website.js';
-import { initScorer, scoreLead } from './scorer.js';
+import { initScorer, scoreLead, isLlmScoringEnabled, deriveSearchParamsFromIcp } from './scorer.js';
 import { dedupeAndMergeLeads } from './dedupe.js';
 import { generateCsv, mapWithConcurrency } from './utils.js';
 import { CRAWLER_DEFAULTS, SOURCES, SOURCE_ALIASES } from './constants.js';
@@ -41,19 +41,52 @@ async function run() {
         throw new Error('icpDescription is required — describe your ideal customer profile (industry, persona, company size, region, etc).');
     }
 
+    // The key can come from the input's secret field or, so it can be set
+    // once and reused across runs without living in the repo, from a
+    // GROQ_API_KEY environment variable (set it as an encrypted secret in
+    // the Actor's Settings → Environment variables).
+    const groqApiKey = input.groqApiKey || process.env.GROQ_API_KEY;
+    initScorer({ apiKey: groqApiKey, model: input.groqModel });
+    if (!groqApiKey) {
+        log.warning('No Groq API key (input groqApiKey or GROQ_API_KEY env var) — leads will be scored with a rule-based fallback instead of an LLM, and search terms/location cannot be auto-derived from the ICP.');
+    }
+
     // Normalize any legacy source ids (e.g. "googleMaps" → "localBusiness")
     // so older saved inputs keep working after the rename.
     const enabledSources = (input.sources?.length ? input.sources : Object.values(SOURCES))
         .map((s) => SOURCE_ALIASES[s] || s);
-    const searchQueries = input.searchQueries || [];
+
+    // What/where/who to look for. The user only *has* to write the ICP; if
+    // they leave these structured fields empty we ask the LLM to derive them
+    // from the ICP text. Any field the user did fill in always wins.
+    let searchQueries = input.searchQueries || [];
+    let personaTitles = input.personaTitles?.length ? input.personaTitles : undefined;
+    let location = input.location || '';
+    let countryCode = input.countryCode || undefined;
+
+    const needsDerivation = !searchQueries.length || !location || !personaTitles;
+    if (needsDerivation && isLlmScoringEnabled()) {
+        log.info('Deriving search terms / location / persona from your ICP description...');
+        const derived = await deriveSearchParamsFromIcp(icpDescription);
+        if (derived) {
+            if (!searchQueries.length && derived.searchQueries.length) searchQueries = derived.searchQueries;
+            if (!location && derived.location) location = derived.location;
+            if (!countryCode && derived.countryCode) countryCode = derived.countryCode;
+            if (!personaTitles && derived.personaTitles.length) personaTitles = derived.personaTitles;
+            log.info(`Derived from ICP → searchQueries: ${JSON.stringify(searchQueries)}, location: "${location || ''}", countryCode: "${countryCode || ''}", personaTitles: ${JSON.stringify(personaTitles || [])}`);
+        } else {
+            log.warning('Could not derive search parameters from the ICP (LLM parse failed); using only the fields you provided.');
+        }
+    } else if (needsDerivation) {
+        log.warning('Some search fields are empty and no Groq key is set to auto-derive them from the ICP — provide searchQueries + location, or set a Groq key.');
+    }
+
     const keywords = input.keywords?.length ? input.keywords : searchQueries;
     // The local business source is the most reliable one, so let it run on
-    // whichever of the two "what to look for" fields the user actually filled
-    // in — searchQueries preferred, else keywords.
+    // whichever of the two "what to look for" fields ended up populated —
+    // searchQueries preferred, else keywords.
     const localBusinessQueries = searchQueries.length ? searchQueries : keywords;
-    const personaTitles = input.personaTitles?.length ? input.personaTitles : undefined;
-    const location = input.location || '';
-    const countryCode = input.countryCode || undefined;
+
     const maxResultsPerSource = input.maxResultsPerSource || CRAWLER_DEFAULTS.maxResultsPerSource;
     const minScoreThreshold = input.minScoreThreshold ?? CRAWLER_DEFAULTS.minScoreThreshold;
     const outputFormat = input.outputFormat || 'both';
@@ -72,20 +105,10 @@ async function run() {
     }
 
     if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && !localBusinessQueries.length) {
-        log.warning('Local business source is enabled but neither `searchQueries` nor `keywords` was provided — skipping it. This is usually the most productive source, so add e.g. searchQueries: ["dental clinics"] and a location.');
+        log.warning('Local business source is enabled but there are no search terms (from `searchQueries`, `keywords`, or derived from your ICP) — skipping it. This is usually the most productive source.');
     }
     if (localBusinessQueries.length && !location) {
-        log.warning('Search terms were given but no `location` — the local business source needs a location (e.g. "London, UK") to run.');
-    }
-
-    // The key can come from the input's secret field or, so it can be set
-    // once and reused across runs without living in the repo, from a
-    // GROQ_API_KEY environment variable (set it as an encrypted secret in
-    // the Actor's Settings → Environment variables).
-    const groqApiKey = input.groqApiKey || process.env.GROQ_API_KEY;
-    initScorer({ apiKey: groqApiKey, model: input.groqModel });
-    if (!groqApiKey) {
-        log.warning('No Groq API key (input groqApiKey or GROQ_API_KEY env var) — leads will be scored with a rule-based fallback instead of an LLM.');
+        log.warning('Search terms are set but no `location` — the local business source needs a location (e.g. "London, UK") to run. Add one to `location` or mention it in your ICP.');
     }
 
     let proxyConfiguration;

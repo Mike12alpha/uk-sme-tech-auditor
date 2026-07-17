@@ -8,7 +8,7 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 
 ## How it works
 
-1. **You describe your ICP** in plain text — industry, persona/job titles, company size, region, pain points, whatever matters to you.
+1. **You describe your ICP** in plain text — industry/business type, persona/job titles, company size, region, pain points, whatever matters to you. This is the only field you really need: if you leave `searchQueries` / `location` / `personaTitles` empty, the actor uses Groq to **derive them straight from your ICP** (e.g. *"UK dental practices in London, reach the Practice Manager"* → searchQueries `["dental practices"]`, location `"London, UK"`, personaTitles `["Practice Manager","Owner"]`). Anything you do fill in yourself always wins. (Auto-derivation needs a Groq key.)
 2. **Four sources run independently** (toggle any of them off). Each source has a built-in crawler that works on any plan; three of them can *optionally* use a paid external Apify Actor for richer data (see [Using external Apify Actors](#using-external-apify-actors-paid)):
    - **Local business** — built-in: our own crawler over the open OpenStreetMap data APIs. Optional external: `compass/crawler-google-places` (real Google Maps data + ratings). See [Limitations](#limitations) for why the built-in default is OpenStreetMap, not Google Maps.
    - **LinkedIn** — decision-makers matching your persona job titles, discovered via public search-engine indexing (no login/cookies required, so no LinkedIn account is put at risk — see [Limitations](#limitations)).
@@ -25,12 +25,12 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `icpDescription` | string | **yes** | — | Free text: who you're targeting. Drives the LLM's scoring. |
-| `searchQueries` | array | no | — | Local-business search terms, e.g. `["dental clinics"]`. Needs `location`. Leave empty to skip the local business source. |
+| `icpDescription` | string | **yes** | — | Free text: who you're targeting. Drives the LLM's scoring **and** — when the fields below are empty — the auto-derivation of search terms/location/persona. |
+| `searchQueries` | array | no | *derived from ICP* | Local-business search terms, e.g. `["dental clinics"]`. Empty ⇒ derived from the ICP (needs Groq key). Needs `location`. |
 | `keywords` | array | no | `searchQueries` | Keywords used to build LinkedIn / directory / web-search queries. |
-| `personaTitles` | array | no | generic owner/founder/director list | Job titles to search for on LinkedIn. |
-| `location` | string | no | — | City/region/country. **Required** for the local business source (it geocodes this to a search area); also used by the others. |
-| `countryCode` | string | no | — | 2-letter code for residential proxy routing on the HTTP sources (e.g. `GB`, `US`). |
+| `personaTitles` | array | no | *derived from ICP* | Ideal-contact job titles. Empty ⇒ derived from the ICP (needs Groq key), else a generic owner/founder/director list. |
+| `location` | string | no | *derived from ICP* | City/region/country. **Required** for the local business source (geocoded to a search area). Empty ⇒ derived from the ICP (needs Groq key). |
+| `countryCode` | string | no | *derived from ICP* | 2-letter code (e.g. `GB`, `US`) for proxy routing. Empty ⇒ derived from the ICP/location. |
 | `directoryUrls` | array | no | auto-built Yell search | Specific directory listing URLs to crawl. |
 | `sources` | array | no | all four | Which sources to run: `localBusiness`, `linkedin`, `directory`, `webSearch`. (Legacy `googleMaps` is accepted as an alias for `localBusiness`.) |
 | `maxResultsPerSource` | integer | no | `50` | Cap per source per query. |
@@ -46,6 +46,17 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 | `outputFormat` | string | no | `both` | `json`, `csv`, or `both`. |
 
 ### Example input
+
+**Minimal — just describe your ICP** (with a Groq key set, the rest is derived automatically):
+
+```json
+{
+  "icpDescription": "UK independent dental practices in London, reaching the Practice Manager or Owner.",
+  "sources": ["localBusiness"]
+}
+```
+
+**Explicit — spell out the search yourself** (works without a Groq key too):
 
 ```json
 {
