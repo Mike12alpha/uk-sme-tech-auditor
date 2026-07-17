@@ -61,6 +61,8 @@ export async function runLinkedInSource({
         proxyConfiguration,
         maxConcurrency: 1,
         maxRequestsPerCrawl: queries.length,
+        maxRequestRetries: 2,
+        maxSessionRotations: 2,
         requestHandlerTimeoutSecs: 30,
         preNavigationHooks: [async ({ request }) => {
             request.headers = { ...request.headers, 'accept-language': 'en-US,en;q=0.9' };
@@ -124,7 +126,10 @@ export async function runLinkedInSource({
         const profileCrawler = new CheerioCrawler({
             proxyConfiguration,
             maxConcurrency: 2,
+            maxRequestRetries: 1,
+            maxSessionRotations: 1,
             requestHandlerTimeoutSecs: 20,
+            navigationTimeoutSecs: 15,
             maxRequestsPerCrawl: leads.length,
             requestHandler: async ({ $, request }) => {
                 const lead = leadsById.get(request.userData.leadId);

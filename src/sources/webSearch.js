@@ -25,6 +25,8 @@ export async function runWebSearchSource({ keywords, location, maxResults, proxy
         proxyConfiguration,
         maxConcurrency: 1,
         maxRequestsPerCrawl: queries.length,
+        maxRequestRetries: 2,
+        maxSessionRotations: 2,
         requestHandlerTimeoutSecs: 30,
         preNavigationHooks: [async ({ request }) => {
             request.headers = { ...request.headers, 'accept-language': 'en-US,en;q=0.9' };

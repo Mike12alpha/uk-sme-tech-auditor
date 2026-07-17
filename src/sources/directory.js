@@ -30,6 +30,8 @@ export async function runDirectorySource({ directoryUrls, keywords, location, ma
         proxyConfiguration,
         maxConcurrency: 2,
         maxRequestsPerCrawl: startUrls.length,
+        maxRequestRetries: 2,
+        maxSessionRotations: 2,
         requestHandlerTimeoutSecs: 30,
         requestHandler: async ({ $, request }) => {
             let hostname;

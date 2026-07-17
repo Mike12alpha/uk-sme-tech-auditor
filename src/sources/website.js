@@ -27,8 +27,16 @@ export async function enrichWebsites(leads, { proxyConfiguration, log: actorLog 
 
     const crawler = new CheerioCrawler({
         proxyConfiguration,
-        maxConcurrency: 3,
-        requestHandlerTimeoutSecs: 30,
+        maxConcurrency: 5,
+        // Enrichment is best-effort over arbitrary third-party sites; many
+        // block the datacenter proxy (403) or the proxy itself returns
+        // 502/504. Without tight caps, Crawlee retries + rotates sessions on
+        // each such URL up to ~10 times, and a batch of 45 sites can burn
+        // minutes and blow the actor's run timeout. Fail these fast.
+        maxRequestRetries: 1,
+        maxSessionRotations: 1,
+        requestHandlerTimeoutSecs: 20,
+        navigationTimeoutSecs: 15,
         maxRequestsPerCrawl: targets.length * 2,
         requestHandler: async ({ $, request, crawler: crawlerInstance }) => {
             const lead = targetsByLeadId.get(request.userData.leadId);

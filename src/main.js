@@ -71,9 +71,14 @@ async function run() {
         log.warning('Local business source is enabled but no searchQueries were provided — skipping it.');
     }
 
-    initScorer({ apiKey: input.groqApiKey, model: input.groqModel });
-    if (!input.groqApiKey) {
-        log.warning('No groqApiKey provided — leads will be scored with a rule-based fallback instead of an LLM.');
+    // The key can come from the input's secret field or, so it can be set
+    // once and reused across runs without living in the repo, from a
+    // GROQ_API_KEY environment variable (set it as an encrypted secret in
+    // the Actor's Settings → Environment variables).
+    const groqApiKey = input.groqApiKey || process.env.GROQ_API_KEY;
+    initScorer({ apiKey: groqApiKey, model: input.groqModel });
+    if (!groqApiKey) {
+        log.warning('No Groq API key (input groqApiKey or GROQ_API_KEY env var) — leads will be scored with a rule-based fallback instead of an LLM.');
     }
 
     let proxyConfiguration;
