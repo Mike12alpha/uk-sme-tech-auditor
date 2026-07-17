@@ -47,6 +47,10 @@ async function run() {
         .map((s) => SOURCE_ALIASES[s] || s);
     const searchQueries = input.searchQueries || [];
     const keywords = input.keywords?.length ? input.keywords : searchQueries;
+    // The local business source is the most reliable one, so let it run on
+    // whichever of the two "what to look for" fields the user actually filled
+    // in — searchQueries preferred, else keywords.
+    const localBusinessQueries = searchQueries.length ? searchQueries : keywords;
     const personaTitles = input.personaTitles?.length ? input.personaTitles : undefined;
     const location = input.location || '';
     const countryCode = input.countryCode || undefined;
@@ -67,8 +71,11 @@ async function run() {
         log.info('External Apify Actors are ENABLED — will try them first, falling back to built-in crawlers on failure. (Requires a plan that can run public Actors; these Actors are billed per result.)');
     }
 
-    if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && !searchQueries.length) {
-        log.warning('Local business source is enabled but no searchQueries were provided — skipping it.');
+    if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && !localBusinessQueries.length) {
+        log.warning('Local business source is enabled but neither `searchQueries` nor `keywords` was provided — skipping it. This is usually the most productive source, so add e.g. searchQueries: ["dental clinics"] and a location.');
+    }
+    if (localBusinessQueries.length && !location) {
+        log.warning('Search terms were given but no `location` — the local business source needs a location (e.g. "London, UK") to run.');
     }
 
     // The key can come from the input's secret field or, so it can be set
@@ -94,14 +101,14 @@ async function run() {
 
     let leads = [];
 
-    if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && searchQueries.length) {
+    if (enabledSources.includes(SOURCES.LOCAL_BUSINESS) && localBusinessQueries.length) {
         let localLeads = [];
 
         if (mapsActorId) {
             log.info(`Local business: trying external Actor ${mapsActorId}...`);
             const items = await callApifyActor(
                 mapsActorId,
-                buildMapsActorInput({ queries: searchQueries, location, maxResultsPerQuery: maxResultsPerSource, countryCode }),
+                buildMapsActorInput({ queries: localBusinessQueries, location, maxResultsPerQuery: maxResultsPerSource, countryCode }),
                 log,
             );
             if (items?.length) {
@@ -113,7 +120,7 @@ async function run() {
         if (!localLeads.length) {
             log.info('Running local business (OpenStreetMap) source...');
             localLeads = await runLocalBusinessSource({
-                queries: searchQueries,
+                queries: localBusinessQueries,
                 location,
                 maxResultsPerQuery: maxResultsPerSource,
                 countryCode,
@@ -213,6 +220,9 @@ async function run() {
     }
 
     log.info(`Total raw leads collected: ${leads.length}`);
+    if (leads.length === 0) {
+        log.warning('No leads from any source. The most reliable source is Local business (OpenStreetMap): make sure you passed `searchQueries` (e.g. ["dental clinics"]) AND a `location` (e.g. "London, UK"). The LinkedIn/directory/web-search sources are frequently blocked on this plan (see README) and often return nothing on their own.');
+    }
     leads = dedupeAndMergeLeads(leads);
     log.info(`After cross-source dedupe/merge: ${leads.length} leads.`);
 
