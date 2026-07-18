@@ -81,6 +81,19 @@
       "description": "Visit each lead's website (and contact page) to extract emails, phone numbers, and social links.",
       "default": true
     },
+    "onlyLeadsWithContact": {
+      "title": "Only keep leads with a contact method",
+      "type": "boolean",
+      "description": "Drop leads that have no email, phone, or website before scoring/export — keep only ones you can actually reach.",
+      "default": false
+    },
+    "maxLeads": {
+      "title": "Max leads to export",
+      "type": "integer",
+      "description": "Hard cap on the number of (highest-scoring) leads exported. 0 = no cap.",
+      "default": 0,
+      "minimum": 0
+    },
     "fetchLinkedInPublicProfiles": {
       "title": "Fetch LinkedIn public profile pages",
       "type": "boolean",

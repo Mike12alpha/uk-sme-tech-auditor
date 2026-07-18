@@ -13,10 +13,10 @@ import { runLinkedInSource } from './sources/linkedin.js';
 import { runDirectorySource } from './sources/directory.js';
 import { runWebSearchSource } from './sources/webSearch.js';
 import { enrichWebsites } from './sources/website.js';
-import { initScorer, scoreLead, isLlmScoringEnabled, deriveSearchParamsFromIcp } from './scorer.js';
+import { initScorer, scoreLeads, isLlmScoringEnabled, deriveSearchParamsFromIcp } from './scorer.js';
 import { dedupeAndMergeLeads } from './dedupe.js';
-import { generateCsv, mapWithConcurrency } from './utils.js';
-import { CRAWLER_DEFAULTS, SOURCES, SOURCE_ALIASES } from './constants.js';
+import { generateCsv, leadHasContact, formatDate } from './utils.js';
+import { CRAWLER_DEFAULTS, SOURCES, SOURCE_ALIASES, ACTOR_VERSION, calculateLeadQuality } from './constants.js';
 import {
     callApifyActor,
     buildMapsActorInput, mapMapsPlace,
@@ -92,6 +92,11 @@ async function run() {
     const outputFormat = input.outputFormat || 'both';
     const doEnrichWebsites = input.enrichWebsites !== false;
     const fetchLinkedInPublicProfiles = input.fetchLinkedInPublicProfiles !== false;
+    const onlyLeadsWithContact = input.onlyLeadsWithContact === true;
+    const maxLeads = Number.isInteger(input.maxLeads) && input.maxLeads > 0 ? input.maxLeads : 0;
+
+    // Per-source counts for the run summary / observability.
+    const leadsPerSource = { localBusiness: 0, linkedin: 0, directory: 0, webSearch: 0 };
 
     // External Apify Actors (paid, require a plan that can run public Actors).
     // When enabled and an id is set for a source, we try that Actor first and
@@ -154,6 +159,7 @@ async function run() {
             });
         }
         log.info(`Local business: ${localLeads.length} leads.`);
+        leadsPerSource.localBusiness = localLeads.length;
         leads.push(...localLeads);
     }
 
@@ -189,6 +195,7 @@ async function run() {
             });
         }
         log.info(`LinkedIn: ${linkedinLeads.length} leads.`);
+        leadsPerSource.linkedin = linkedinLeads.length;
         leads.push(...linkedinLeads);
     }
 
@@ -229,6 +236,7 @@ async function run() {
             log.info('Directory source: no `directoryUrls` supplied and no external directory Actor — skipping (the default Yell search is blocked from Apify IPs).');
         }
         log.info(`Directory: ${directoryLeads.length} leads.`);
+        leadsPerSource.directory = directoryLeads.length;
         leads.push(...directoryLeads);
     }
 
@@ -245,6 +253,7 @@ async function run() {
             return [];
         });
         log.info(`Web search: ${webSearchLeads.length} leads.`);
+        leadsPerSource.webSearch = webSearchLeads.length;
         leads.push(...webSearchLeads);
     }
 
@@ -260,17 +269,27 @@ async function run() {
         leads = await enrichWebsites(leads, { proxyConfiguration, log });
     }
 
-    log.info('Scoring leads against the ICP...');
-    await mapWithConcurrency(leads, 5, async (lead) => {
-        const result = await scoreLead(lead, icpDescription);
-        lead.icpScore = result.score;
-        lead.matchedPersona = result.matchedPersona;
-        lead.icpReasoning = result.reasoning;
-        lead.suggestedApproach = result.suggestedApproach;
-    });
+    // Optionally keep only leads we can actually reach out to.
+    if (onlyLeadsWithContact) {
+        const before = leads.length;
+        leads = leads.filter(leadHasContact);
+        log.info(`Contact filter: kept ${leads.length}/${before} leads that have an email, phone, or website.`);
+    }
 
-    const qualifiedLeads = leads.filter((l) => (l.icpScore ?? 0) >= minScoreThreshold);
+    log.info(`Scoring ${leads.length} leads against the ICP${isLlmScoringEnabled() ? ' with Groq (batched)' : ' (rule-based fallback)'}...`);
+    await scoreLeads(leads, icpDescription);
+
+    // Rank best-first and stamp a human-readable quality label on each record.
+    leads.sort((a, b) => (b.icpScore ?? 0) - (a.icpScore ?? 0));
+    for (const lead of leads) lead.leadQuality = calculateLeadQuality(lead.icpScore ?? 0);
+
+    let qualifiedLeads = leads.filter((l) => (l.icpScore ?? 0) >= minScoreThreshold);
     log.info(`${qualifiedLeads.length}/${leads.length} leads meet the minimum score threshold (${minScoreThreshold}).`);
+
+    if (maxLeads > 0 && qualifiedLeads.length > maxLeads) {
+        log.info(`Capping output at maxLeads=${maxLeads} (highest-scoring first).`);
+        qualifiedLeads = qualifiedLeads.slice(0, maxLeads);
+    }
 
     for (const lead of qualifiedLeads) {
         await Actor.pushData(lead);
@@ -289,10 +308,29 @@ async function run() {
     const warm = qualifiedLeads.filter((l) => l.icpScore >= 60 && l.icpScore < 80).length;
     const cold = qualifiedLeads.filter((l) => l.icpScore < 60).length;
 
+    // Machine-readable run summary for observability / downstream automation.
+    const summary = {
+        actorVersion: ACTOR_VERSION,
+        finishedAt: formatDate(),
+        icpDescription,
+        resolvedSearch: { searchQueries, location, countryCode: countryCode || null, personaTitles: personaTitles || [] },
+        enabledSources,
+        usedApifyActors: useApifyActors,
+        llmScoring: isLlmScoringEnabled(),
+        leadsPerSource,
+        totalScraped: leads.length,
+        qualified: qualifiedLeads.length,
+        exported: qualifiedLeads.length,
+        breakdown: { hot, warm, cold },
+        minScoreThreshold,
+    };
+    await Actor.setValue('SUMMARY', summary, { contentType: 'application/json' });
+
     log.info('=== Universal Lead Generator Summary ===');
+    log.info(`Leads by source: ${JSON.stringify(leadsPerSource)}`);
     log.info(`Total leads scraped: ${leads.length}`);
     log.info(`Qualified leads (>= threshold): ${qualifiedLeads.length}`);
-    log.info(`Hot (>=80): ${hot} | Warm (60-79): ${warm} | Cold (<60): ${cold}`);
+    log.info(`Exported: ${qualifiedLeads.length} — Hot (>=80): ${hot} | Warm (60-79): ${warm} | Cold (<60): ${cold}`);
 
     await Actor.exit();
 }

@@ -5,8 +5,10 @@
  */
 
 import Groq from 'groq-sdk';
-import { LLM_SCORER_SYSTEM_PROMPT, ICP_PARSER_SYSTEM_PROMPT } from './constants.js';
+import { LLM_SCORER_SYSTEM_PROMPT, LLM_BATCH_SCORER_SYSTEM_PROMPT, ICP_PARSER_SYSTEM_PROMPT } from './constants.js';
 import { retryAsync } from './utils.js';
+
+const BATCH_SIZE = 10;
 
 let client = null;
 let model = 'llama-3.3-70b-versatile';
@@ -93,6 +95,16 @@ function buildLeadSummary(lead) {
     };
 }
 
+function normalizeScoreResult(result, lead, icpDescription) {
+    if (!result || typeof result !== 'object') return ruleBasedScore(lead, icpDescription);
+    return {
+        score: Math.max(0, Math.min(100, Number(result.score) || 0)),
+        matchedPersona: !!result.matchedPersona,
+        reasoning: result.reasoning || '',
+        suggestedApproach: result.suggestedApproach || '',
+    };
+}
+
 export async function scoreLead(lead, icpDescription) {
     if (!client) return ruleBasedScore(lead, icpDescription);
 
@@ -115,16 +127,80 @@ export async function scoreLead(lead, icpDescription) {
             return JSON.parse(text);
         }, 2, 800);
 
-        return {
-            score: Math.max(0, Math.min(100, Number(result.score) || 0)),
-            matchedPersona: !!result.matchedPersona,
-            reasoning: result.reasoning || '',
-            suggestedApproach: result.suggestedApproach || '',
-        };
+        return normalizeScoreResult(result, lead, icpDescription);
     } catch (err) {
         return {
             ...ruleBasedScore(lead, icpDescription),
             reasoning: `AI scoring failed (${err.message}); used rule-based fallback.`,
         };
     }
+}
+
+async function scoreOneBatch(batch, icpDescription) {
+    const summaries = batch.map((lead, i) => ({ i, ...buildLeadSummary(lead) }));
+    const result = await retryAsync(async () => {
+        const response = await client.chat.completions.create({
+            model,
+            max_tokens: 2000,
+            response_format: { type: 'json_object' },
+            messages: [
+                { role: 'system', content: LLM_BATCH_SCORER_SYSTEM_PROMPT },
+                { role: 'user', content: `ICP:\n${icpDescription}\n\nLeads (JSON array):\n${JSON.stringify(summaries)}` },
+            ],
+        });
+        const text = response.choices?.[0]?.message?.content;
+        if (!text) throw new Error('No content in Groq response');
+        return JSON.parse(text);
+    }, 2, 800);
+
+    const byIndex = new Map();
+    for (const r of Array.isArray(result?.results) ? result.results : []) {
+        if (typeof r?.i === 'number') byIndex.set(r.i, r);
+    }
+    // Any lead the model omitted falls back to a rule-based score rather than
+    // silently getting a 0.
+    return batch.map((lead, i) => (
+        byIndex.has(i)
+            ? normalizeScoreResult(byIndex.get(i), lead, icpDescription)
+            : ruleBasedScore(lead, icpDescription)
+    ));
+}
+
+/**
+ * Scores many leads with far fewer LLM calls by batching (~10 leads per
+ * request). Mutates each lead in `leads` with icpScore / matchedPersona /
+ * icpReasoning / suggestedApproach. Falls back to rule-based scoring when no
+ * LLM is configured or a batch fails.
+ */
+export async function scoreLeads(leads, icpDescription) {
+    const apply = (lead, r) => {
+        lead.icpScore = r.score;
+        lead.matchedPersona = r.matchedPersona;
+        lead.icpReasoning = r.reasoning;
+        lead.suggestedApproach = r.suggestedApproach;
+    };
+
+    if (!client) {
+        for (const lead of leads) apply(lead, ruleBasedScore(lead, icpDescription));
+        return leads;
+    }
+
+    const batches = [];
+    for (let i = 0; i < leads.length; i += BATCH_SIZE) batches.push(leads.slice(i, i + BATCH_SIZE));
+
+    // Batches run a couple at a time to stay well under Groq rate limits.
+    const CONCURRENCY = 2;
+    for (let i = 0; i < batches.length; i += CONCURRENCY) {
+        const slice = batches.slice(i, i + CONCURRENCY);
+        await Promise.all(slice.map(async (batch) => {
+            let results;
+            try {
+                results = await scoreOneBatch(batch, icpDescription);
+            } catch {
+                results = batch.map((lead) => ruleBasedScore(lead, icpDescription));
+            }
+            batch.forEach((lead, j) => apply(lead, results[j]));
+        }));
+    }
+    return leads;
 }

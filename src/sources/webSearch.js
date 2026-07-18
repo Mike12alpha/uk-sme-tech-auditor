@@ -7,7 +7,7 @@
  */
 
 import { CheerioCrawler } from 'crawlee';
-import { normalizeUrl, extractDomain, isDirectoryPage, newLeadId, formatDate, normalizeDdgHref, sleep } from '../utils.js';
+import { normalizeUrl, extractDomain, isDirectoryPage, isNonBusinessUrl, newLeadId, formatDate, normalizeDdgHref, sleep } from '../utils.js';
 import { ACTOR_VERSION } from '../constants.js';
 
 const SOCIAL_HOSTS = ['facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'linkedin.com', 'youtube.com', 'tiktok.com', 'pinterest.com'];
@@ -48,6 +48,9 @@ export async function runWebSearchSource({ keywords, location, maxResults, proxy
                 }
                 if (SOCIAL_HOSTS.some((h) => hostname.includes(h))) return;
                 if (isDirectoryPage(url)) return;
+                // Drop search engines, aggregators, comparison/review portals,
+                // and reference sites — they're never a real business lead.
+                if (isNonBusinessUrl(url)) return;
 
                 const domain = extractDomain(url);
                 if (seenDomains.has(domain)) return;

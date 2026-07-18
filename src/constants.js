@@ -2,7 +2,20 @@
  * Configuration, defaults, and prompts for the Universal Lead Generator.
  */
 
-export const ACTOR_VERSION = '2.0.0';
+export const ACTOR_VERSION = '2.1.0';
+
+// Hosts that are never a real business lead: search engines, their tracking
+// beacons, generic aggregators/comparison/review portals, and reference
+// sites. The web-search source drops these so junk like `duckduckgo.com/y.js`
+// or `travelsupermarket.com` never becomes a "lead".
+export const NON_BUSINESS_DOMAINS = [
+    'duckduckgo.com', 'google.com', 'google.co.uk', 'bing.com', 'yahoo.com', 'yandex.com', 'baidu.com',
+    'wikipedia.org', 'wikimedia.org', 'wikidata.org', 'fandom.com',
+    'travelsupermarket.com', 'comparethemarket.com', 'moneysupermarket.com', 'confused.com', 'gocompare.com',
+    'trustpilot.com', 'tripadvisor.com', 'tripadvisor.co.uk', 'yelp.com', 'yell.com', 'thomsonlocal.com',
+    'reddit.com', 'quora.com', 'medium.com', 'amazon.com', 'amazon.co.uk', 'ebay.com', 'ebay.co.uk',
+    'gov.uk', 'nhs.uk', 'companieshouse.gov.uk', 'glassdoor.com', 'indeed.com', 'crunchbase.com',
+];
 
 export const SOURCES = {
     LOCAL_BUSINESS: 'localBusiness',
@@ -122,3 +135,16 @@ export const ICP_PARSER_SYSTEM_PROMPT = `You turn a free-text Ideal Customer Pro
 
 Do not invent a location that isn't in the ICP. Respond with ONLY a JSON object, no other text:
 {"searchQueries":["..."],"location":"City, Country" or null,"countryCode":"GB" or null,"personaTitles":["..."]}`;
+
+export const LLM_BATCH_SCORER_SYSTEM_PROMPT = `You are a B2B sales research analyst. You are given an Ideal Customer Profile (ICP) and a numbered list of scraped leads. Score EACH lead 0-100 on how well it matches the ICP.
+
+SCORING GUIDANCE:
+- 80-100: Strong match — business type / persona / industry / location line up closely with the ICP.
+- 60-79: Good partial match — most criteria match, one or two unclear or missing.
+- 40-59: Weak match — only loosely related, or too much missing data to be confident.
+- 0-39: Poor match or clearly outside the ICP.
+
+Be honest about missing data — do not invent facts; a blank field is unknown, not bad.
+
+Return ONLY a JSON object mapping every lead's index "i" to its score. Include an entry for every index you were given, no extra text:
+{"results":[{"i":0,"score":number,"matchedPersona":boolean,"reasoning":"one sentence","suggestedApproach":"one short suggestion"}, ...]}`;

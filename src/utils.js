@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { resolveMx } from 'node:dns/promises';
 import { parse as tldtsParse } from 'tldts';
 import { stringify as csvStringify } from 'csv-stringify/sync';
-import { DIRECTORY_DOMAINS, calculateLeadQuality, FREE_EMAIL_PROVIDERS } from './constants.js';
+import { DIRECTORY_DOMAINS, calculateLeadQuality, FREE_EMAIL_PROVIDERS, NON_BUSINESS_DOMAINS } from './constants.js';
 
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 // UK-biased but tolerant of loose international formats (spaces, dashes, parens, leading +).
@@ -190,6 +190,21 @@ export function isFreeEmailProvider(email) {
     return FREE_EMAIL_PROVIDERS.includes(domain);
 }
 
+/** True if the URL/host is a search engine, aggregator, or reference site — never a real business lead. */
+export function isNonBusinessUrl(url) {
+    try {
+        const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+        return NON_BUSINESS_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+    } catch {
+        return false;
+    }
+}
+
+/** A lead is "contactable" if it has at least one of email, phone, or website. */
+export function leadHasContact(lead) {
+    return !!(lead.email || lead.phone || lead.website);
+}
+
 export function newLeadId() {
     return randomUUID();
 }
@@ -248,8 +263,11 @@ function flattenLead(item) {
         emailStatus: item.emailStatus || '',
         phone: item.phone || '',
         address: item.address || '',
+        postcode: item.postcode || '',
         city: item.city || '',
         country: item.country || '',
+        latitude: item.latitude ?? '',
+        longitude: item.longitude ?? '',
         linkedinUrl: item.linkedinUrl || '',
         facebook: social.facebook || '',
         twitter: social.twitter || '',
@@ -258,7 +276,7 @@ function flattenLead(item) {
         reviewsCount: item.reviewsCount ?? '',
         category: item.category || '',
         icpScore: item.icpScore ?? '',
-        leadQuality: item.icpScore != null ? calculateLeadQuality(item.icpScore) : '',
+        leadQuality: item.leadQuality || (item.icpScore != null ? calculateLeadQuality(item.icpScore) : ''),
         matchedPersona: item.matchedPersona ?? '',
         icpReasoning: item.icpReasoning || '',
         suggestedApproach: item.suggestedApproach || '',

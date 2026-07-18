@@ -36,6 +36,8 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 | `maxResultsPerSource` | integer | no | `50` | Cap per source per query. |
 | `minScoreThreshold` | integer | no | `0` | Only export leads scoring at/above this. |
 | `enrichWebsites` | boolean | no | `true` | Visit each lead's website for contact data. |
+| `onlyLeadsWithContact` | boolean | no | `false` | Drop leads with no email/phone/website before scoring & export. |
+| `maxLeads` | integer | no | `0` | Hard cap on exported (highest-scoring) leads. `0` = no cap. |
 | `fetchLinkedInPublicProfiles` | boolean | no | `true` | Best-effort fetch of each LinkedIn profile's public page. |
 | `useApifyActors` | boolean | no | `false` | Try paid external Apify Actors (Maps/LinkedIn/directory) first, fall back to built-in crawlers. See [Using external Apify Actors](#using-external-apify-actors-paid). |
 | `mapsActorId` | string | no | `compass/crawler-google-places` | External Google Maps Actor (only used when `useApifyActors` is on). |
@@ -82,15 +84,21 @@ Every record in the Apify Dataset is a unified lead, regardless of which source(
 | `companyName`, `personName`, `jobTitle` | Who/what the lead is. |
 | `website`, `domain` | Company website and root domain. |
 | `email`, `emailStatus` | `found` (scraped) or `guessed` (pattern + MX check). |
-| `phone`, `address`, `city`, `country` | Contact/location details. |
+| `phone`, `address`, `postcode`, `city`, `country` | Contact/location details. |
+| `latitude`, `longitude` | Coordinates (local business source; null elsewhere). |
 | `linkedinUrl`, `socialLinks` | Social profiles found. |
 | `rating`, `reviewsCount` | Always null (OpenStreetMap has no ratings/reviews). |
+| `leadQuality` | `Hot lead` (≥80), `Warm lead` (60–79), `Cold lead` (40–59), or `Ignore` (<40). |
 | `category` | Business category, e.g. `amenity: dentist` (local business source). |
 | `icpScore` | 0-100 fit score from the LLM (or the rule-based fallback). |
 | `matchedPersona`, `icpReasoning`, `suggestedApproach` | The LLM's scoring explanation and outreach suggestion. |
 | `sourceUrl`, `scrapedAt`, `actorVersion` | Provenance. |
 
-CSV output flattens `socialLinks` into `facebook` / `twitter` / `instagram` columns.
+CSV output flattens `socialLinks` into `facebook` / `twitter` / `instagram` columns. Exported leads are sorted highest-score-first.
+
+Alongside the leads, the run writes a **`SUMMARY`** record to the Key-Value Store — a machine-readable object with the resolved search params, per-source lead counts, totals, the hot/warm/cold breakdown, and whether LLM scoring/external actors were used. Handy for dashboards or chaining runs.
+
+> Scoring is **batched** (~10 leads per Groq call), so scoring 50 leads takes a couple of seconds rather than a minute of one-at-a-time calls.
 
 ---
 
