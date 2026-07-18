@@ -1,44 +1,55 @@
 /**
- * Local business source, powered entirely by OpenStreetMap:
- *   1. Nominatim geocodes the free-text `location` into a bounding box.
- *   2. Overpass returns businesses inside that box, matched either by a
- *      keyword→OSM-tag mapping (e.g. "dental clinics" → amenity=dentist) or,
- *      for unmapped keywords, by a name search across business tag families.
+ * Local business source, powered by OpenStreetMap's Nominatim search API.
  *
- * This is our own crawler — plain HTTP to open, scraping-friendly public
- * APIs. No browser, no proxy, no third-party Apify Actor, works on any Apify
- * plan, no per-result cost. It deliberately replaces direct Google Maps
- * scraping, which needs residential proxies (Google tarpits datacenter IPs)
- * not available on lower tiers. Tradeoff: fewer businesses than Google Maps
- * and no ratings/reviews, but reliable name/address/phone/website/category.
+ *   1. Geocode the free-text `location` to a bounding box.
+ *   2. For each search term, run a viewbox-bounded Nominatim search and turn
+ *      the matching business POIs into leads (name, address, phone, website,
+ *      category, coordinates).
+ *
+ * This is our own crawler — plain HTTP to an open, scraping-friendly public
+ * API. No browser, no third-party Apify Actor, works on any Apify plan, no
+ * per-result cost.
+ *
+ * Why Nominatim and not Overpass: an earlier version used the Overpass API
+ * for category lookups, but from Apify's datacenter network every Overpass
+ * mirror consistently timed out or was throttled (four mirrors × 25s each
+ * blew the run timeout). Nominatim is reachable and fast from Apify, and a
+ * viewbox-bounded search on the category term (e.g. "dentist") returns
+ * comparable coverage (~40 results) in a single lightweight request.
+ *
+ * Coverage note: search by the OSM-style category term ("dentist", "car
+ * rental", "restaurant"), not a name-like phrase ("dental clinic") — the
+ * former matches the business category and returns far more results. The
+ * ICP-derivation prompt is tuned to produce these category terms.
  */
 
 import { newLeadId, formatDate, extractDomain, normalizeUrl, sleep } from '../utils.js';
-import { ACTOR_VERSION, KEYWORD_OSM_TAGS, OSM_BUSINESS_TAG_FAMILIES } from '../constants.js';
+import { ACTOR_VERSION } from '../constants.js';
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-// Multiple Overpass mirrors. The main overpass-api.de instance is heavily
-// loaded and frequently returns 504/429; the others are alternates. We try
-// each mirror once with a short per-request timeout and move straight on to
-// the next if it errors or is slow — cycling mirrors IS the retry strategy,
-// which avoids hammering (and waiting on) one overloaded server.
-const OVERPASS_URLS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-    'https://overpass.openstreetmap.ru/api/interpreter',
-];
-// Healthy mirrors answer these small city+tag queries in a few seconds; if a
-// mirror hasn't responded in this long it's overloaded — abandon it and move on.
-const OVERPASS_REQUEST_TIMEOUT_MS = 25000;
-// Nominatim/Overpass usage policy: identify the client and go easy on volume.
+// Nominatim usage policy: identify the client, and stay at/under 1 req/sec.
 const USER_AGENT = 'universal-lead-generator/2.0 (Apify Actor; B2B lead generation)';
+const REQUEST_TIMEOUT_MS = 20000;
+// OSM top-level categories that represent contactable businesses/orgs.
+const BUSINESS_CATEGORIES = new Set(['amenity', 'shop', 'office', 'craft', 'healthcare', 'tourism', 'leisure', 'club']);
+// ...and categories that are clearly not a business, filtered out.
+const NON_BUSINESS_CATEGORIES = new Set(['highway', 'boundary', 'place', 'natural', 'waterway', 'railway', 'landuse', 'route', 'barrier', 'man_made', 'building', 'admin']);
+
+async function nominatimGet(params) {
+    const url = `${NOMINATIM_URL}?${params.toString()}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+        const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: controller.signal });
+        if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
+        return await res.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 async function geocode(location) {
-    const url = `${NOMINATIM_URL}?q=${encodeURIComponent(location)}&format=json&limit=1`;
-    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
-    if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await nominatimGet(new URLSearchParams({ q: location, format: 'json', limit: '1' }));
     if (!Array.isArray(data) || !data.length) return null;
     // Nominatim boundingbox is [south, north, west, east] (strings).
     const [south, north, west, east] = data[0].boundingbox.map(Number);
@@ -46,102 +57,41 @@ async function geocode(location) {
     return { south, west, north, east };
 }
 
-function escapeForOverpass(value) {
-    return value.replace(/["\\]/g, ' ').trim();
+function isBusinessResult(p) {
+    if (!p.name) return false;
+    const category = p.category || p.class;
+    if (category && NON_BUSINESS_CATEGORIES.has(category)) return false;
+    // Accept known business categories; if the category is unknown/absent but
+    // the place has a name and a street address, keep it (it's a real POI).
+    if (category && BUSINESS_CATEGORIES.has(category)) return true;
+    return !!(p.address && (p.address.road || p.address.house_number));
 }
 
-function buildOverpassQuery(keyword, bbox, limit) {
-    const b = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
-    const kw = keyword.toLowerCase();
-
-    const mappedTags = [];
-    for (const [needle, tagList] of Object.entries(KEYWORD_OSM_TAGS)) {
-        if (kw.includes(needle)) mappedTags.push(...tagList);
-    }
-
-    let selectors;
-    if (mappedTags.length) {
-        selectors = [...new Set(mappedTags)].flatMap((tag) => {
-            const [k, v] = tag.split('=');
-            return [
-                `  node["${k}"="${v}"](${b});`,
-                `  way["${k}"="${v}"](${b});`,
-            ];
-        }).join('\n');
-    } else {
-        const safe = escapeForOverpass(keyword);
-        selectors = OSM_BUSINESS_TAG_FAMILIES.flatMap((family) => [
-            `  node["name"~"${safe}",i]["${family}"](${b});`,
-            `  way["name"~"${safe}",i]["${family}"](${b});`,
-        ]).join('\n');
-    }
-
-    return `[out:json][timeout:60];\n(\n${selectors}\n);\nout center tags ${limit};`;
-}
-
-async function fetchOverpassOnce(endpoint, query) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), OVERPASS_REQUEST_TIMEOUT_MS);
-    try {
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT },
-            body: `data=${encodeURIComponent(query)}`,
-            signal: controller.signal,
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        return data.elements || [];
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-async function runOverpass(query, log) {
-    for (let i = 0; i < OVERPASS_URLS.length; i++) {
-        const endpoint = OVERPASS_URLS[i];
-        const isLast = i === OVERPASS_URLS.length - 1;
-        try {
-            return await fetchOverpassOnce(endpoint, query);
-        } catch (err) {
-            const reason = err.name === 'AbortError' ? `no response in ${OVERPASS_REQUEST_TIMEOUT_MS / 1000}s` : err.message;
-            log.warning(`Overpass ${endpoint} failed (${reason})${isLast ? '.' : '; trying next mirror.'}`);
-        }
-    }
+function composeAddress(p) {
+    const a = p.address || {};
+    const line1 = [a.house_number, a.road].filter(Boolean).join(' ');
+    const parts = [line1, a.city || a.town || a.village || a.suburb, a.postcode].filter(Boolean);
+    if (parts.length) return parts.join(', ');
+    // Fall back to trimming the leading name off the long display_name.
+    if (p.display_name) return p.display_name.split(',').slice(1, 4).join(',').trim() || p.display_name;
     return null;
 }
 
-function composeAddress(tags) {
-    const line1 = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ');
-    const parts = [
-        line1,
-        tags['addr:city'] || tags['addr:town'] || tags['addr:suburb'],
-        tags['addr:postcode'],
-    ].filter(Boolean);
-    return parts.length ? parts.join(', ') : null;
-}
-
-function pickCategory(tags) {
-    for (const family of OSM_BUSINESS_TAG_FAMILIES) {
-        if (tags[family]) return `${family}: ${tags[family]}`;
-    }
-    return null;
-}
-
-function elementToLead(element, location, countryCode) {
-    const tags = element.tags || {};
-    if (!tags.name) return null;
-
+function resultToLead(p, location, countryCode) {
+    const tags = p.extratags || {};
     const rawWebsite = tags.website || tags['contact:website'] || tags.url || null;
-    const website = rawWebsite ? normalizeUrl(rawWebsite.startsWith('http') ? rawWebsite : `https://${rawWebsite}`) : null;
+    const website = rawWebsite
+        ? normalizeUrl(rawWebsite.startsWith('http') ? rawWebsite : `https://${rawWebsite}`)
+        : null;
     const phone = tags.phone || tags['contact:phone'] || tags['contact:mobile'] || null;
     const email = tags.email || tags['contact:email'] || null;
+    const addr = p.address || {};
 
     return {
         leadId: newLeadId(),
         source: 'local_business',
         type: 'company',
-        companyName: tags.name,
+        companyName: p.name || p.namedetails?.name || null,
         personName: null,
         jobTitle: null,
         industry: null,
@@ -150,15 +100,15 @@ function elementToLead(element, location, countryCode) {
         email: email ? email.toLowerCase() : null,
         emailStatus: email ? 'found' : null,
         phone,
-        address: composeAddress(tags),
-        city: tags['addr:city'] || tags['addr:town'] || location || null,
-        country: tags['addr:country'] || countryCode || null,
+        address: composeAddress(p),
+        city: addr.city || addr.town || addr.village || addr.suburb || location || null,
+        country: addr.country_code ? addr.country_code.toUpperCase() : (countryCode || null),
         linkedinUrl: null,
         socialLinks: {},
         rating: null,
         reviewsCount: null,
-        category: pickCategory(tags),
-        sourceUrl: element.type && element.id ? `https://www.openstreetmap.org/${element.type}/${element.id}` : null,
+        category: (p.category || p.class) ? `${p.category || p.class}: ${p.type}` : null,
+        sourceUrl: p.osm_type && p.osm_id ? `https://www.openstreetmap.org/${p.osm_type}/${p.osm_id}` : null,
         scrapedAt: formatDate(),
         actorVersion: ACTOR_VERSION,
     };
@@ -182,24 +132,36 @@ export async function runLocalBusinessSource({ queries, location, maxResultsPerQ
         actorLog.error(`Local business: could not geocode "${location}".`);
         return [];
     }
+    // Nominatim viewbox order is left,top,right,bottom = west,north,east,south.
+    const viewbox = `${bbox.west},${bbox.north},${bbox.east},${bbox.south}`;
 
     const leads = [];
     const seen = new Set();
 
     for (const query of queries) {
-        const overpassQuery = buildOverpassQuery(query, bbox, maxResultsPerQuery);
-        // Nominatim asks for <= 1 req/sec; Overpass appreciates the same restraint.
+        // Stay within Nominatim's ~1 req/sec policy.
         await sleep(1100);
-        const elements = await runOverpass(overpassQuery, actorLog);
-        if (elements === null) {
-            actorLog.error(`Local business: all Overpass endpoints failed for "${query}".`);
+        let results;
+        try {
+            results = await nominatimGet(new URLSearchParams({
+                q: query,
+                viewbox,
+                bounded: '1',
+                format: 'jsonv2',
+                addressdetails: '1',
+                extratags: '1',
+                namedetails: '1',
+                limit: String(Math.min(maxResultsPerQuery, 50)),
+            }));
+        } catch (err) {
+            actorLog.warning(`Local business: search for "${query}" failed (${err.message}).`);
             continue;
         }
 
         let added = 0;
-        for (const element of elements) {
-            const lead = elementToLead(element, location, countryCode);
-            if (!lead) continue;
+        for (const p of Array.isArray(results) ? results : []) {
+            if (!isBusinessResult(p)) continue;
+            const lead = resultToLead(p, location, countryCode);
             const key = `${lead.companyName}|${lead.address || ''}`.toLowerCase();
             if (seen.has(key)) continue;
             seen.add(key);

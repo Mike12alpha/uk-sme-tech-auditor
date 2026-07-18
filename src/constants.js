@@ -16,102 +16,6 @@ export const SOURCE_ALIASES = {
     googleMaps: 'localBusiness',
 };
 
-/**
- * Maps a free-text search keyword (substring, lowercased) to the OpenStreetMap
- * tags that best represent that business type. Used by the local-business
- * source to turn "dental clinics" into `amenity=dentist` etc. Anything not
- * matched here falls back to a name-based OSM search across business tags.
- */
-export const KEYWORD_OSM_TAGS = {
-    dentist: ['amenity=dentist', 'healthcare=dentist'],
-    dental: ['amenity=dentist', 'healthcare=dentist'],
-    orthodont: ['healthcare=dentist'],
-    doctor: ['amenity=doctors', 'healthcare=doctor'],
-    'gp ': ['amenity=doctors'],
-    clinic: ['amenity=clinic', 'healthcare=clinic'],
-    hospital: ['amenity=hospital'],
-    pharmac: ['amenity=pharmacy'],
-    chemist: ['amenity=pharmacy'],
-    optician: ['shop=optician'],
-    optometr: ['shop=optician'],
-    physio: ['healthcare=physiotherapist'],
-    vet: ['amenity=veterinary'],
-    restaurant: ['amenity=restaurant'],
-    cafe: ['amenity=cafe'],
-    coffee: ['amenity=cafe'],
-    bar: ['amenity=bar', 'amenity=pub'],
-    pub: ['amenity=pub'],
-    takeaway: ['amenity=fast_food'],
-    'fast food': ['amenity=fast_food'],
-    bakery: ['shop=bakery'],
-    butcher: ['shop=butcher'],
-    hotel: ['tourism=hotel'],
-    'bed and breakfast': ['tourism=guest_house'],
-    'car dealer': ['shop=car'],
-    dealership: ['shop=car'],
-    'car repair': ['shop=car_repair'],
-    garage: ['shop=car_repair'],
-    mechanic: ['shop=car_repair'],
-    'car wash': ['amenity=car_wash'],
-    lawyer: ['office=lawyer'],
-    solicitor: ['office=lawyer'],
-    attorney: ['office=lawyer'],
-    accountant: ['office=accountant'],
-    accounting: ['office=accountant'],
-    'estate agent': ['office=estate_agent'],
-    realtor: ['office=estate_agent'],
-    'real estate': ['office=estate_agent'],
-    insurance: ['office=insurance'],
-    'financial advis': ['office=financial_advisor', 'office=financial'],
-    architect: ['office=architect'],
-    'travel agent': ['shop=travel_agency'],
-    recruit: ['office=employment_agency'],
-    gym: ['leisure=fitness_centre', 'amenity=gym'],
-    fitness: ['leisure=fitness_centre'],
-    spa: ['leisure=spa', 'shop=beauty'],
-    salon: ['shop=hairdresser', 'shop=beauty'],
-    hairdress: ['shop=hairdresser'],
-    barber: ['shop=hairdresser'],
-    beauty: ['shop=beauty'],
-    nail: ['shop=beauty'],
-    tattoo: ['shop=tattoo'],
-    plumber: ['craft=plumber'],
-    plumbing: ['craft=plumber'],
-    electrician: ['craft=electrician'],
-    builder: ['craft=builder'],
-    construction: ['craft=builder'],
-    carpenter: ['craft=carpenter'],
-    roofer: ['craft=roofer'],
-    painter: ['craft=painter'],
-    locksmith: ['craft=locksmith'],
-    florist: ['shop=florist'],
-    supermarket: ['shop=supermarket'],
-    grocery: ['shop=supermarket', 'shop=convenience'],
-    clothing: ['shop=clothes'],
-    fashion: ['shop=clothes'],
-    furniture: ['shop=furniture'],
-    hardware: ['shop=hardware'],
-    jewel: ['shop=jewelry'],
-    bookshop: ['shop=books'],
-    bank: ['amenity=bank'],
-    school: ['amenity=school'],
-    nursery: ['amenity=kindergarten'],
-    'estate management': ['office=property_management'],
-    'letting agent': ['office=estate_agent'],
-    'it company': ['office=it', 'office=company'],
-    'software company': ['office=it', 'office=company'],
-    'marketing agency': ['office=advertising_agency', 'office=company'],
-    consultant: ['office=consulting', 'office=company'],
-    printer: ['shop=copyshop', 'craft=printer'],
-    'dry clean': ['shop=dry_cleaning'],
-    laundry: ['shop=laundry'],
-    'pet shop': ['shop=pet'],
-    veterinary: ['amenity=veterinary'],
-};
-
-// OSM tag families searched by name when a keyword isn't in KEYWORD_OSM_TAGS.
-export const OSM_BUSINESS_TAG_FAMILIES = ['amenity', 'shop', 'office', 'craft', 'healthcare', 'tourism', 'leisure'];
-
 export const CRAWLER_DEFAULTS = {
     maxResultsPerSource: 50,
     minScoreThreshold: 0,
@@ -211,7 +115,7 @@ Respond with ONLY a JSON object, no other text:
 
 export const ICP_PARSER_SYSTEM_PROMPT = `You turn a free-text Ideal Customer Profile (ICP) into structured search parameters for a lead-generation tool. From the ICP, extract:
 
-- "searchQueries": 1-4 concrete business-type search terms someone would type into a business directory or map, e.g. ["dental clinics","dental practices"] or ["car dealerships"]. Use the business/industry, not the persona. If the ICP describes people rather than a business type, infer the most likely business type they work at.
+- "searchQueries": 1-3 short OpenStreetMap-style category terms for the business type — the singular word you'd use to tag/find the place, NOT a marketing phrase. Good: ["dentist"], ["car rental"], ["restaurant"], ["accountant"], ["gym"]. Bad: ["dental clinics"], ["car rental company"], ["independent family restaurants"]. Drop filler words like "company", "business", "services", "independent", "family-run", and prefer singular. Use the business/industry, not the persona; if the ICP describes people, infer the business type they work at.
 - "location": the target area as "City, Country" or "Region, Country" (e.g. "London, UK"). Null if the ICP names no location.
 - "countryCode": the 2-letter ISO country code for that location (e.g. "GB", "US"). Null if unknown.
 - "personaTitles": 1-4 job titles of the ideal contact person, e.g. ["Practice Manager","Owner"]. Empty array if none implied.
