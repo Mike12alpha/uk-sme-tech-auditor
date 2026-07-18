@@ -208,8 +208,12 @@ async function run() {
             }
         }
 
-        if (!directoryLeads.length) {
-            log.info('Running directory source (built-in)...');
+        // The built-in directory crawler only works on directories you supply
+        // via `directoryUrls`. With none, it would fall back to an auto-built
+        // Yell search that reliably 403s from Apify's IPs — so skip that
+        // guaranteed-fail path (it just wastes time and floods the log).
+        if (!directoryLeads.length && input.directoryUrls?.length) {
+            log.info('Running directory source (built-in) on your directoryUrls...');
             directoryLeads = await runDirectorySource({
                 directoryUrls: input.directoryUrls,
                 keywords,
@@ -221,6 +225,8 @@ async function run() {
                 log.error(`Directory source failed: ${err.message}`);
                 return [];
             });
+        } else if (!directoryLeads.length) {
+            log.info('Directory source: no `directoryUrls` supplied and no external directory Actor — skipping (the default Yell search is blocked from Apify IPs).');
         }
         log.info(`Directory: ${directoryLeads.length} leads.`);
         leads.push(...directoryLeads);
