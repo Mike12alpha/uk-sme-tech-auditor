@@ -324,7 +324,9 @@ async function run() {
         breakdown: { hot, warm, cold },
         minScoreThreshold,
     };
-    await Actor.setValue('SUMMARY', summary, { contentType: 'application/json' });
+    // Pass the object directly (no contentType): Apify serializes it to JSON.
+    // Passing an object *with* contentType throws (it wants a String/Buffer).
+    await Actor.setValue('SUMMARY', summary);
 
     log.info('=== Universal Lead Generator Summary ===');
     log.info(`Leads by source: ${JSON.stringify(leadsPerSource)}`);
