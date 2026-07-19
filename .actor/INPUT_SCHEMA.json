@@ -60,12 +60,12 @@
       "default": ["localBusiness", "linkedin", "directory", "webSearch"]
     },
     "maxResultsPerSource": {
-      "title": "Max results per source",
+      "title": "Target leads per source (per search term)",
       "type": "integer",
-      "description": "Cap on how many leads each individual source (per query) can return.",
-      "default": 50,
+      "description": "How many leads to aim for from each source, per search term. The local business source grid-searches OpenStreetMap to reach large targets (e.g. 1000+). Big targets make more throttled requests (~1/sec) and take longer — raise the Actor's Run timeout accordingly. Repeat queries are served from cache.",
+      "default": 100,
       "minimum": 1,
-      "maximum": 1000
+      "maximum": 5000
     },
     "minScoreThreshold": {
       "title": "Minimum ICP score threshold",
@@ -78,8 +78,28 @@
     "enrichWebsites": {
       "title": "Enrich leads from their websites",
       "type": "boolean",
-      "description": "Visit each lead's website (and contact page) to extract emails, phone numbers, and social links.",
+      "description": "Visit each lead's website (and up to 2 contact/about pages) to extract emails, phone numbers, and social links.",
       "default": true
+    },
+    "maxEnrichWebsites": {
+      "title": "Max websites to enrich",
+      "type": "integer",
+      "description": "Cap on how many lead websites to visit for contact data (bounds run time at large scale). Leads beyond the cap keep whatever contact info the source already provided.",
+      "default": 300,
+      "minimum": 1
+    },
+    "useCache": {
+      "title": "Use cross-run cache",
+      "type": "boolean",
+      "description": "Reuse stored results for a (search term + location) that was scraped in an earlier run, instead of hitting the source APIs again. Faster and gentler on the free OpenStreetMap service.",
+      "default": true
+    },
+    "cacheMaxAgeDays": {
+      "title": "Cache max age (days)",
+      "type": "integer",
+      "description": "How long cached results stay valid before being re-scraped.",
+      "default": 7,
+      "minimum": 1
     },
     "onlyLeadsWithContact": {
       "title": "Only keep leads with a contact method",

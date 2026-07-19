@@ -2,7 +2,7 @@
  * Configuration, defaults, and prompts for the Universal Lead Generator.
  */
 
-export const ACTOR_VERSION = '2.1.0';
+export const ACTOR_VERSION = '2.2.0';
 
 // Hosts that are never a real business lead: search engines, their tracking
 // beacons, generic aggregators/comparison/review portals, and reference

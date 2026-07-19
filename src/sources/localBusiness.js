@@ -25,11 +25,15 @@
 
 import { newLeadId, formatDate, extractDomain, normalizeUrl, sleep } from '../utils.js';
 import { ACTOR_VERSION } from '../constants.js';
+import { getCached, setCached } from '../cache.js';
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 // Nominatim usage policy: identify the client, and stay at/under 1 req/sec.
-const USER_AGENT = 'universal-lead-generator/2.0 (Apify Actor; B2B lead generation)';
+const USER_AGENT = 'universal-lead-generator/2.1 (Apify Actor; B2B lead generation)';
 const REQUEST_TIMEOUT_MS = 20000;
+const NOMINATIM_PER_QUERY_LIMIT = 50;   // Nominatim's practical max per request.
+const RESULTS_PER_TILE = 45;            // conservative estimate used to size the grid.
+const MAX_GRID_DIM = 10;                // hard cap: 10×10 = 100 tiles per query.
 // OSM top-level categories that represent contactable businesses/orgs.
 const BUSINESS_CATEGORIES = new Set(['amenity', 'shop', 'office', 'craft', 'healthcare', 'tourism', 'leisure', 'club']);
 // ...and categories that are clearly not a business, filtered out.
@@ -117,6 +121,74 @@ function resultToLead(p, location, countryCode) {
     };
 }
 
+/** Build the viewbox string (left,top,right,bottom = west,north,east,south) for a sub-tile. */
+function tileViewbox(bbox, gx, gy, dim) {
+    const w = bbox.west + ((bbox.east - bbox.west) * gx) / dim;
+    const e = bbox.west + ((bbox.east - bbox.west) * (gx + 1)) / dim;
+    const s = bbox.south + ((bbox.north - bbox.south) * gy) / dim;
+    const n = bbox.south + ((bbox.north - bbox.south) * (gy + 1)) / dim;
+    return `${w},${n},${e},${s}`;
+}
+
+async function nominatimSearchTile(query, viewbox) {
+    return nominatimGet(new URLSearchParams({
+        q: query,
+        viewbox,
+        bounded: '1',
+        format: 'jsonv2',
+        addressdetails: '1',
+        extratags: '1',
+        namedetails: '1',
+        limit: String(NOMINATIM_PER_QUERY_LIMIT),
+    }));
+}
+
+/**
+ * Scrape up to `target` businesses for one search term. If the target is
+ * larger than a single Nominatim request can return, the geocoded area is
+ * split into an N×N grid and each tile searched — searching sub-areas
+ * surfaces different businesses, multiplying coverage (e.g. "dentist" in
+ * London: ~50 for the whole box, ~450 across a 3×3 grid).
+ */
+async function scrapeQuery(query, bbox, target, location, countryCode, actorLog) {
+    const dim = Math.min(MAX_GRID_DIM, Math.max(1, Math.ceil(Math.sqrt(target / RESULTS_PER_TILE))));
+    const leads = [];
+    const seen = new Set();
+
+    // Snake through the grid so an early `target` stop still covers spread-out area.
+    const tiles = [];
+    if (dim === 1) {
+        tiles.push(`${bbox.west},${bbox.north},${bbox.east},${bbox.south}`);
+    } else {
+        for (let gy = 0; gy < dim; gy++) {
+            for (let gx = 0; gx < dim; gx++) tiles.push(tileViewbox(bbox, gx, gy, dim));
+        }
+    }
+
+    for (const viewbox of tiles) {
+        if (leads.length >= target) break;
+        await sleep(1100); // Nominatim ≤1 req/sec.
+        let results;
+        try {
+            results = await nominatimSearchTile(query, viewbox);
+        } catch (err) {
+            actorLog.warning(`Local business: a tile search for "${query}" failed (${err.message}); continuing.`);
+            continue;
+        }
+        for (const p of Array.isArray(results) ? results : []) {
+            if (leads.length >= target) break;
+            if (!isBusinessResult(p)) continue;
+            const lead = resultToLead(p, location, countryCode);
+            const key = lead.sourceUrl || `${lead.companyName}|${lead.address || ''}`.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            leads.push(lead);
+        }
+    }
+    actorLog.info(`Local business: "${query}" → ${leads.length} business(es) (grid ${dim}×${dim}).`);
+    return leads;
+}
+
 export async function runLocalBusinessSource({ queries, location, maxResultsPerQuery, countryCode, log: actorLog }) {
     if (!location) {
         actorLog.warning('Local business source needs a `location` to bound the search — skipping.');
@@ -124,55 +196,41 @@ export async function runLocalBusinessSource({ queries, location, maxResultsPerQ
     }
     if (!queries?.length) return [];
 
-    let bbox;
-    try {
-        bbox = await geocode(location);
-    } catch (err) {
-        actorLog.error(`Local business: geocoding "${location}" failed: ${err.message}`);
-        return [];
-    }
-    if (!bbox) {
-        actorLog.error(`Local business: could not geocode "${location}".`);
-        return [];
-    }
-    // Nominatim viewbox order is left,top,right,bottom = west,north,east,south.
-    const viewbox = `${bbox.west},${bbox.north},${bbox.east},${bbox.south}`;
+    const target = Math.max(1, maxResultsPerQuery || 50);
 
-    const leads = [];
-    const seen = new Set();
+    let bbox = null; // geocoded lazily and reused across queries (only if a query misses cache).
 
+    const all = [];
+    const seenGlobal = new Set();
     for (const query of queries) {
-        // Stay within Nominatim's ~1 req/sec policy.
-        await sleep(1100);
-        let results;
-        try {
-            results = await nominatimGet(new URLSearchParams({
-                q: query,
-                viewbox,
-                bounded: '1',
-                format: 'jsonv2',
-                addressdetails: '1',
-                extratags: '1',
-                namedetails: '1',
-                limit: String(Math.min(maxResultsPerQuery, 50)),
-            }));
-        } catch (err) {
-            actorLog.warning(`Local business: search for "${query}" failed (${err.message}).`);
-            continue;
+        const cacheId = `local|${query.toLowerCase().trim()}|${location.toLowerCase().trim()}|${target}`;
+        let queryLeads = await getCached(cacheId);
+        if (queryLeads) {
+            actorLog.info(`Local business: "${query}" → ${queryLeads.length} business(es) from cache.`);
+        } else {
+            if (!bbox) {
+                try {
+                    bbox = await geocode(location);
+                } catch (err) {
+                    actorLog.error(`Local business: geocoding "${location}" failed: ${err.message}`);
+                    return all;
+                }
+                if (!bbox) {
+                    actorLog.error(`Local business: could not geocode "${location}".`);
+                    return all;
+                }
+            }
+            queryLeads = await scrapeQuery(query, bbox, target, location, countryCode, actorLog);
+            await setCached(cacheId, queryLeads);
         }
 
-        let added = 0;
-        for (const p of Array.isArray(results) ? results : []) {
-            if (!isBusinessResult(p)) continue;
-            const lead = resultToLead(p, location, countryCode);
-            const key = `${lead.companyName}|${lead.address || ''}`.toLowerCase();
-            if (seen.has(key)) continue;
-            seen.add(key);
-            leads.push(lead);
-            added += 1;
+        for (const lead of queryLeads) {
+            const key = lead.sourceUrl || `${lead.companyName}|${lead.address || ''}`.toLowerCase();
+            if (seenGlobal.has(key)) continue;
+            seenGlobal.add(key);
+            all.push(lead);
         }
-        actorLog.info(`Local business: "${query}" → ${added} business(es) from OpenStreetMap.`);
     }
 
-    return leads;
+    return all;
 }

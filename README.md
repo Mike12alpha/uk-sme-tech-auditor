@@ -16,8 +16,10 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
    - **General web search** — finds company websites directly by keyword + location, for industries with no strong directory/Maps presence.
 3. **Leads are deduped and merged** across sources — a local business and a LinkedIn person at the same company become one combined lead where possible.
 4. **Website enrichment** visits each company's site (and contact page) for emails, phone numbers, and social links. If no email is found but a person's name + domain are known, it guesses common email patterns and keeps the guess only if the domain actually has mail servers (MX record) — this is a heuristic, not a real verification.
-5. **Every lead is scored 0-100 against your ICP** using Groq (or a rule-based fallback if no API key is supplied).
-6. **Results export** to the Apify Dataset, plus CSV/JSON in the Key-Value Store.
+5. **Every lead is scored 0-100 against your ICP** using Groq (batched — ~10 leads per call), or a rule-based fallback if no API key is supplied.
+6. **Results export** to the Apify Dataset, plus CSV/JSON in the Key-Value Store, sorted best-first.
+
+**Scale:** set `maxResultsPerSource` to how many leads you want per search term — 50, 500, or a few thousand. The local business source grid-searches OpenStreetMap (splitting the area into tiles) to reach large targets. **Cross-run cache:** results for a `(search term + location)` are stored in a named Key-Value Store, so a repeat run returns them instantly from storage instead of re-scraping (and keeps load off the free OSM service).
 
 ---
 
@@ -33,9 +35,12 @@ This replaces an earlier, narrowly-scoped "UK SME Tech Auditor" actor that only 
 | `countryCode` | string | no | *derived from ICP* | 2-letter code (e.g. `GB`, `US`) for proxy routing. Empty ⇒ derived from the ICP/location. |
 | `directoryUrls` | array | no | auto-built Yell search | Specific directory listing URLs to crawl. |
 | `sources` | array | no | all four | Which sources to run: `localBusiness`, `linkedin`, `directory`, `webSearch`. (Legacy `googleMaps` is accepted as an alias for `localBusiness`.) |
-| `maxResultsPerSource` | integer | no | `50` | Cap per source per query. |
+| `maxResultsPerSource` | integer | no | `100` | Target leads per source, per search term. Local business grid-searches OSM to reach large targets (up to `5000`). |
 | `minScoreThreshold` | integer | no | `0` | Only export leads scoring at/above this. |
-| `enrichWebsites` | boolean | no | `true` | Visit each lead's website for contact data. |
+| `enrichWebsites` | boolean | no | `true` | Visit each lead's website (+ up to 2 contact/about pages) for email/phone/socials. |
+| `maxEnrichWebsites` | integer | no | `300` | Cap on how many websites to visit for enrichment (bounds run time at scale). |
+| `useCache` | boolean | no | `true` | Serve repeat `(term + location)` results from the cross-run cache. |
+| `cacheMaxAgeDays` | integer | no | `7` | How long cached results stay valid. |
 | `onlyLeadsWithContact` | boolean | no | `false` | Drop leads with no email/phone/website before scoring & export. |
 | `maxLeads` | integer | no | `0` | Hard cap on exported (highest-scoring) leads. `0` = no cap. |
 | `fetchLinkedInPublicProfiles` | boolean | no | `true` | Best-effort fetch of each LinkedIn profile's public page. |
@@ -114,7 +119,12 @@ Two tips for best coverage:
 - Use short **category** terms (`dentist`, `car rental`, `restaurant`) rather than marketing phrases (`dental clinic`, `car rental company`) — Nominatim matches the category term far better. The ICP auto-derivation already produces these.
 - OpenStreetMap has no ratings/reviews, and phone/website are present only where the community filled them in (usually a minority of records). The website-enrichment step backfills emails/phones/socials for the businesses that do list a website.
 
-> Note: this uses the public Nominatim service, which asks callers to stay at ≤1 request/second (the actor throttles itself accordingly). It's fine for normal lead-gen volumes; don't hammer it with hundreds of search terms per run.
+> Note: this uses the public Nominatim service, which asks callers to stay at ≤1 request/second (the actor throttles itself accordingly). Large targets grid-search the area, so they make more requests and take longer — a `maxResultsPerSource` of ~1000 is roughly a 5×5 grid (~25 throttled requests, ~30s) per term, so **raise the Actor's Run timeout** (e.g. 1800s) for big targets. The cross-run cache means you only pay that cost once per `(term + location)`. For very high sustained volume, consider self-hosting a Nominatim instance and pointing the actor at it.
+
+### Scale & caching
+- `maxResultsPerSource` is your target per search term. Small (50–100) runs finish in seconds; large (1000+) runs grid-search and take a few minutes — bump the Run timeout.
+- Results are cached across runs in a named Key-Value Store (`LEAD-CACHE`) keyed by `(source + term + location + target)`. Re-running the same query returns instantly from storage. Set `useCache: false` to force a fresh scrape, or `cacheMaxAgeDays` to control freshness.
+- `maxEnrichWebsites` caps how many lead sites are visited for contact data, so enrichment can't blow the timeout on huge result sets — leads beyond the cap keep whatever contact info OSM already had.
 
 ### Using external Apify Actors (paid)
 Set `useApifyActors: true` to pull richer data from proven specialist Actors instead of the built-in crawlers:

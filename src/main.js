@@ -17,6 +17,7 @@ import { initScorer, scoreLeads, isLlmScoringEnabled, deriveSearchParamsFromIcp 
 import { dedupeAndMergeLeads } from './dedupe.js';
 import { generateCsv, leadHasContact, formatDate } from './utils.js';
 import { CRAWLER_DEFAULTS, SOURCES, SOURCE_ALIASES, ACTOR_VERSION, calculateLeadQuality } from './constants.js';
+import { initCache, isCacheEnabled } from './cache.js';
 import {
     callApifyActor,
     buildMapsActorInput, mapMapsPlace,
@@ -94,6 +95,15 @@ async function run() {
     const fetchLinkedInPublicProfiles = input.fetchLinkedInPublicProfiles !== false;
     const onlyLeadsWithContact = input.onlyLeadsWithContact === true;
     const maxLeads = Number.isInteger(input.maxLeads) && input.maxLeads > 0 ? input.maxLeads : 0;
+    const maxEnrichWebsites = Number.isInteger(input.maxEnrichWebsites) && input.maxEnrichWebsites > 0
+        ? input.maxEnrichWebsites : 300;
+
+    // Cross-run cache: repeat (query + area) results are served from storage.
+    await initCache({ enabled: input.useCache !== false, maxAgeDays: input.cacheMaxAgeDays });
+
+    if (maxResultsPerSource > 200) {
+        log.info(`Large target (maxResultsPerSource=${maxResultsPerSource}). The local business source grid-searches to reach it (~1 req/sec), so this run may take a few minutes — make sure the Actor's Run timeout is high enough (e.g. 1800s). Repeat runs of the same query are served from cache.`);
+    }
 
     // Per-source counts for the run summary / observability.
     const leadsPerSource = { localBusiness: 0, linkedin: 0, directory: 0, webSearch: 0 };
@@ -266,7 +276,7 @@ async function run() {
 
     if (doEnrichWebsites) {
         log.info('Enriching leads with contact data from their websites...');
-        leads = await enrichWebsites(leads, { proxyConfiguration, log });
+        leads = await enrichWebsites(leads, { proxyConfiguration, maxToEnrich: maxEnrichWebsites, log });
     }
 
     // Optionally keep only leads we can actually reach out to.
@@ -316,8 +326,12 @@ async function run() {
         resolvedSearch: { searchQueries, location, countryCode: countryCode || null, personaTitles: personaTitles || [] },
         enabledSources,
         usedApifyActors: useApifyActors,
+        cacheEnabled: isCacheEnabled(),
         llmScoring: isLlmScoringEnabled(),
         leadsPerSource,
+        withEmail: leads.filter((l) => l.email).length,
+        withPhone: leads.filter((l) => l.phone).length,
+        withWebsite: leads.filter((l) => l.website).length,
         totalScraped: leads.length,
         qualified: qualifiedLeads.length,
         exported: qualifiedLeads.length,

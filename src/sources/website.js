@@ -19,15 +19,25 @@ import {
     generateEmailPatterns, domainHasMx, isFreeEmailProvider,
 } from '../utils.js';
 
-export async function enrichWebsites(leads, { proxyConfiguration, log: actorLog }) {
-    const targets = leads.filter((l) => l.website && !l.email);
+const CONTACT_LINK_RE = /contact|about|team|people|staff|impressum/i;
+const MAX_CONTACT_FOLLOWS = 2;
+
+export async function enrichWebsites(leads, { proxyConfiguration, maxToEnrich = 0, log: actorLog }) {
+    let targets = leads.filter((l) => l.website && (!l.email || !l.phone));
     if (!targets.length) return leads;
+
+    // At scale, bound how many sites we visit so enrichment can't blow the
+    // run timeout; the rest keep whatever contact data the source gave them.
+    if (maxToEnrich > 0 && targets.length > maxToEnrich) {
+        actorLog.info(`Website enrichment: capping at ${maxToEnrich}/${targets.length} sites (raise maxEnrichWebsites to enrich more).`);
+        targets = targets.slice(0, maxToEnrich);
+    }
 
     const targetsByLeadId = new Map(targets.map((lead) => [lead.leadId, lead]));
 
     const crawler = new CheerioCrawler({
         proxyConfiguration,
-        maxConcurrency: 5,
+        maxConcurrency: 8,
         // Enrichment is best-effort over arbitrary third-party sites; many
         // block the datacenter proxy (403) or the proxy itself returns
         // 502/504. Without tight caps, Crawlee retries + rotates sessions on
@@ -37,7 +47,7 @@ export async function enrichWebsites(leads, { proxyConfiguration, log: actorLog 
         maxSessionRotations: 1,
         requestHandlerTimeoutSecs: 20,
         navigationTimeoutSecs: 15,
-        maxRequestsPerCrawl: targets.length * 2,
+        maxRequestsPerCrawl: targets.length * (1 + MAX_CONTACT_FOLLOWS),
         requestHandler: async ({ $, request, crawler: crawlerInstance }) => {
             const lead = targetsByLeadId.get(request.userData.leadId);
             if (!lead) return;
@@ -65,21 +75,31 @@ export async function enrichWebsites(leads, { proxyConfiguration, log: actorLog 
             }
             if (!lead.linkedinUrl && social.linkedin) lead.linkedinUrl = social.linkedin;
 
-            if (!lead.email && !request.userData.visitedContact) {
-                const contactHref = $('a[href]').toArray()
-                    .map((el) => $(el).attr('href'))
-                    .find((href) => href && /contact/i.test(href));
-                if (contactHref) {
+            // From the homepage only (depth 0), follow up to a couple of
+            // contact/about/team pages to dig out an email we didn't find yet.
+            if (!lead.email && (request.userData.depth || 0) === 0) {
+                const base = request.loadedUrl || request.url;
+                const seen = new Set();
+                const contactUrls = [];
+                for (const el of $('a[href]').toArray()) {
+                    const href = $(el).attr('href');
+                    if (!href || !CONTACT_LINK_RE.test(href)) continue;
                     try {
-                        const contactUrl = new URL(contactHref, request.loadedUrl || request.url).href;
-                        await crawlerInstance.addRequests([{
-                            url: contactUrl,
-                            userData: { leadId: lead.leadId, visitedContact: true },
-                            uniqueKey: `${lead.leadId}-contact`,
-                        }]);
+                        const u = new URL(href, base).href;
+                        if (seen.has(u)) continue;
+                        seen.add(u);
+                        contactUrls.push(u);
+                        if (contactUrls.length >= MAX_CONTACT_FOLLOWS) break;
                     } catch {
-                        // Malformed contact link — skip.
+                        // Malformed link — skip.
                     }
+                }
+                if (contactUrls.length) {
+                    await crawlerInstance.addRequests(contactUrls.map((u, i) => ({
+                        url: u,
+                        userData: { leadId: lead.leadId, depth: 1 },
+                        uniqueKey: `${lead.leadId}-contact-${i}`,
+                    })));
                 }
             }
         },
